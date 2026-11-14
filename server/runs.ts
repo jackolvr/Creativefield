@@ -39,7 +39,11 @@ export async function deleteRun(pool: Pool, store: DiskStore, workspaceId: strin
     const run = (await client.query("SELECT state,created_by,output_ids FROM runs WHERE workspace_id=$1 AND id=$2 AND deleted_at IS NULL FOR UPDATE", [workspaceId, id])).rows[0];
     if (!run) throw new HttpError(404, "Run not found");
     if (user.role !== "admin" && run.created_by !== user.id) throw new HttpError(403, "Only the run owner or an administrator may delete this run");
-    if (activeStates.includes(run.state)) throw new HttpError(409, "Cancel this run first.");
+    /* Deleting is always final: a run that still says pending/running is retired here first, so a
+       stale cancel_requested row on an offline worker can never block the delete. */
+    if (activeStates.includes(run.state)) {
+      await client.query("UPDATE runs SET state='canceled',error=NULL,updated_at=now() WHERE workspace_id=$1 AND id=$2", [workspaceId, id]);
+    }
     // The record stays as history; only its visibility and its own output files go.
     await client.query("UPDATE runs SET deleted_at=now() WHERE workspace_id=$1 AND id=$2", [workspaceId, id]);
     const outputs: unknown[] = Array.isArray(run.output_ids) ? run.output_ids : [];
