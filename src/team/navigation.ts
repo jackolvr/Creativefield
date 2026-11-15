@@ -3,6 +3,7 @@ import {cloudFeature,routerModelsFor,type CloudFeature} from "../capabilities/ro
 import {capabilitySurface,isCreateVideoWorkflow,isImageWorkflow,isVideoWorkflow} from "../capabilities/surfaces";
 import {FLASH_EFFECT_CLIPS_ID,isEffectClips,isFlashVideoCreate,isSupersededLocalVideoWorkflow,routeTask,taskPacks} from "../capabilities/tasks";
 import type {CapabilityManifestV2} from "../capabilities/types";
+import {finishRoleOf,roleCandidates} from "../capabilities/roles";
 import {VIDEO_REFRAME_ID} from "../capabilities/video-reframe";
 import {isMaskedEdit} from "./masked-state";
 import {resolveOpenJutsu} from "./openjutsu-navigation";
@@ -112,7 +113,7 @@ export type ResolvedScreen=
   | {kind:"storyboard";boardId?:string;target:"local"|"cloud"|"router"}
   | {kind:"keyframes";target:"local"|"router"}
   | {kind:"edit-area";assetId?:string;ready:boolean}
-  | {kind:"transform";choice:ChangeChoice;reframe?:CapabilityManifestV2}
+  | {kind:"transform";choice:ChangeChoice;reframe?:CapabilityManifestV2;/** Replace character inside Change: the OpenJutsu composer, routed by manifest role. */person?:Extract<OpenJutsuSelection,{kind:"composer"}>}
   | {kind:"make-real";manifest:CapabilityManifestV2}
   | {kind:"effects";manifest:CapabilityManifestV2}
   | {kind:"trim";assetId?:string}
@@ -271,7 +272,7 @@ function resolveMenu(input:NavigationInput,section:string,models:Models,router:R
     (capabilitySurface(manifest)!=="video-create"||isFlashVideoCreate(manifest.id)||imported(manifest)));
   const enhance=videoWorkflows.find(manifest=>manifest.category==="enhance");
   /* One Enhance entry stands for every finishing pack; those packs leave the menu list (their links still open). */
-  const finishing=!hosted&&models.ready.some(manifest=>!!manifest.finishStep);
+  const finishing=!hosted&&models.ready.some(manifest=>!!finishRoleOf(manifest));
   const video=[
     ...(!hosted||router("openjutsu")?[videoEntry("openjutsu","OpenJutsu · H3 API","Experimental character/reference video generation through Comfy Router","#openjutsu")]:[]),
     videoEntry("create","Create Video","Generate video from text or images","#video/create"),
@@ -303,14 +304,16 @@ function resolveMenu(input:NavigationInput,section:string,models:Models,router:R
   }:{
     block:hasSurface("video-effect"),h3effects:input.ready.has(FLASH_EFFECT_CLIPS_ID),
     audio:models.implemented.some(manifest=>manifest.category==="audio"||/chatterbox|lip-?sync|speech/.test(manifest.id)),
-    replace:models.implemented.some(manifest=>manifest.id==="scail2-character-replace"),
+    replace:models.implemented.some(manifest=>manifest.id==="scail2-character-replace")||roleCandidates("change","replace-person",models.implemented).length>0,
     motion:models.motionChoices.length>0,edit:models.implemented.some(isMaskedEdit),
-    restyle:hasSurface("video-effect"),video:canMakeVideo,film:canMakeVideo,image:models.image.length>0,vfx:!!upscale,
+    restyle:hasSurface("video-effect"),video:canMakeVideo,film:canMakeVideo,image:models.image.length>0,vfx:finishing||!!upscale,
     remiximage:models.imageStudios.remix.some(manifest=>localReady.has(manifest.id)),
     adimage:models.imageStudios.marketing.some(manifest=>localReady.has(manifest.id)),
   }).filter(task=>input.filmStudioInstalled||task.href!=="#block/film")
-    .map(task=>hosted&&!cloudJobs&&task.id==="sharpen"
-      ? {...task,href:"#video/transform/upscale",workflow:undefined}
+    /* Upscale opens the Upscale tool on this computer; a guest has no local chain, so it takes the Router tool,
+       or with Comfy Cloud jobs the cloud upscale workflow in the composer. */
+    .map(task=>hosted&&task.id==="sharpen"
+      ? cloudJobs?{...task,href:"#video/create",workflow:upscale?.id}:{...task,href:"#video/transform/upscale",workflow:undefined}
       : task);
   const account:AccountNavigation=input.audience==="guest"?{kind:"sign-in"}:{
     kind:"menu",
@@ -333,7 +336,7 @@ function resolveMenu(input:NavigationInput,section:string,models:Models,router:R
   const jobs=signedIn||!hosted&&!!(input.hasWorkers||input.cloud.connected);
   const topBar={jobs,freeInput:jobs&&section!=="openjutsu",workspacePicker:(input.workspaceCount??0)>1,addProject:input.canCreate};
   return {sections,video,image,threeD,tools,account,settings,topBar,
-    videoWorkflows:videoWorkflows.filter(manifest=>!finishing||!manifest.finishStep).map(manifest=>manifest.id),imageWorkflows:hosted?[]:models.image.map(manifest=>manifest.id),
+    videoWorkflows:videoWorkflows.filter(manifest=>!finishing||!finishRoleOf(manifest)).map(manifest=>manifest.id),imageWorkflows:hosted?[]:models.image.map(manifest=>manifest.id),
     videoFooter:footer,imageFooter:footer};
 }
 
@@ -386,8 +389,8 @@ export function resolveScreen(input:NavigationInput){
   if(foldedEdit)videoMode="transform";
   if(hosted&&(videoMode==="storyboard"&&!router("video-create")||videoMode==="keyframes"&&!router("keyframes")))videoMode="create";
   const createVideo=section==="video"&&videoMode==="create";
-  /* Enhance video: the ready packs that are a finishing step (manifest `finishStep`), local only. */
-  const finishPacks=hosted?[]:models.ready.filter(manifest=>!!manifest.finishStep);
+  /* Enhance video: the ready packs that are a finishing step (manifest `role` with tool "upscale", see roles.ts), local only. */
+  const finishPacks=hosted?[]:models.ready.filter(manifest=>!!finishRoleOf(manifest));
   const trim=section==="video"&&videoMode==="trim";
   const effects=section==="video"&&videoMode==="effects";
   const effectWorkflow=effects?(namedVideo&&isEffectClips(namedVideo.id)?namedVideo:models.defaultEffects):undefined;
@@ -405,6 +408,12 @@ export function resolveScreen(input:NavigationInput){
   const motionChoices=hosted?models.motionChoices.filter(supportsCloud):models.motionChoices;
   const motionManifest=motion?selectReadyWorkflow(motionChoices,input.ready,input.selection?.workflowId,part):undefined;
   const localReady=input.canCreate?input.localReady??input.ready:input.ready;
+  /* Change › Replace character: the person tool, on this computer only (guests keep the Router screen). A link
+     `#video/transform/person/<id>` pins one workflow, as `#openjutsu/<id>` does; `#video/replace` opens it too. */
+  const personPin=transform&&change==="person"?hash.replace(/^#/,"").split("/")[3]:undefined;
+  const personScreen=transform&&!hosted?resolveOpenJutsu({hash:personPin?`#openjutsu/${personPin}`:"#openjutsu",catalogue:models.catalogue,
+    localReady:input.localReady??input.ready,ready:models.ready,hosted,experiment:input.openJutsuExperiment}).screen:undefined;
+  const person=personScreen?.kind==="composer"?personScreen:undefined;
   const reframe=transform&&!hosted?models.catalogue.find(manifest=>manifest.id===VIDEO_REFRAME_ID&&localReady.has(manifest.id)):undefined;
   const targets=resolveTarget(input,section,openJutsu);
   const threeD=section==="3d"?threeDTool(part):null;
@@ -582,7 +591,8 @@ export function resolveScreen(input:NavigationInput){
           ? missing("Reframe runs on this computer","Choose a Transform tool available through Comfy Router.")
           : missing("Reframe is not ready here","Check the local HyperFlow Reframe workflow in Models.","#catalogue","Open Models");
         if(change==="upscale"||change==="cutout")return missing("This tool uses Comfy Router","Choose Comfy Router in Run on to open this tool.");
-        return {kind:"transform",choice:change&&change!=="person"?change:"motion",reframe};
+        const wantsPerson=change==="person"||videoMode==="replace";
+        return {kind:"transform",choice:wantsPerson&&person?"person":change&&change!=="person"?change:"motion",reframe,person};
       }
       const workflow=createVideo?createWorkflow:selectedVideo;
       return {kind:"video",mode:videoMode,workflowId:workflow?.id,change};

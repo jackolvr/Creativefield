@@ -23,6 +23,7 @@ import {TeamLibrary,TeamRuns} from "./TeamLibrary";
 import {runFacts} from "./run-facts";
 import {feedMode,feedScope,feedVisibleRuns} from "./media-feed";
 import {groupMenu} from "./menu-groups";
+import {toolEntriesFrom,toolExtras,toolHref,toolMenus,toolOfHash,TOOLS,type Tool} from "./tool-menus";
 import {JobQueueIndicator} from "./JobQueueIndicator";
 import {TeamChoice} from "./TeamChoice";
 import {CapabilityCatalogue} from "../ui/CapabilityCatalogue";
@@ -613,6 +614,12 @@ function TeamWorkspace({user,workspace,workspaces,onWorkspace,call,authorized,of
   videoMenu.groups=groupMenu("video",[...videoMenu.features,...videoMenu.models]);
   if(threeDMenu)threeDMenu.groups=groupMenu("3d",[...threeDMenu.features,...threeDMenu.models]);
   imageMenu.groups=groupMenu("image",[...imageMenu.features,...imageMenu.models]);
+  /* The top bar shows the four tools (tool-menus.ts): every entry above sits under its tool; Film Studio adds its own
+     tasks and Create the audio studio. */
+  const menusByTool=toolMenus(toolEntriesFrom({video:videoMenu,image:imageMenu,threeD:threeDMenu},id=>catalogue.find(m=>m.id===id),
+    toolExtras(workspaceMenu.tools,workspaceMenu.video.map(entry=>entry.href),workspaceMenu.sections.includes("audio"),id=>{const task=workspaceMenu.tools.find(item=>item.id===id);if(task)openStartTask(task);})));
+  const TOOL_ICONS:Record<Tool,ReactNode>={create:<Sparkles size={20}/>,change:<Palette size={20}/>,upscale:<Maximize2 size={20}/>,"film-studio":<Clapperboard size={20}/>};
+  const currentTool=toolOfHash(navigation.requestedHash??location.hash);
   const section=sectionOf(route);
   const workspaceBar=!catalogueScreen&&!nodes&&section!=="3d";
   useDensity();
@@ -778,11 +785,12 @@ function TeamWorkspace({user,workspace,workspaces,onWorkspace,call,authorized,of
   };
   const composerProps={catalogue,user,workspace,call,canQueue:canCreate,authorized,onQueued:refresh,
     onWorkerSettings:openWorkerSettings,onModels:openModels,onRunLocal:()=>setRunOn("local")};
-  function renderOpenJutsu(project:Project,screen:Extract<ResolvedScreen,{kind:"openjutsu"}>["selection"]){
+  /** OpenJutsu, and Change › Replace character (`top` = the Change switcher, choices stay under `#video/transform/person`). */
+  function renderOpenJutsu(project:Project,screen:Extract<ResolvedScreen,{kind:"openjutsu"}>["selection"],top?:ReactNode){
     if(screen.kind==="composer"){
-      return <TeamComposer key={`${project.id}:${screen.manifest.id}`} manifest={screen.manifest} {...composerProps}
-        modelChoice={{title:"OpenJutsu",subtitle:screen.subtitle,options:screen.options}}
-        onCapability={id=>{location.hash=id===replaceRoute?.manifest.id?"openjutsu/multi":`openjutsu/${id}`;}}
+      return <TeamComposer key={`${project.id}:${screen.manifest.id}`} top={top} manifest={screen.manifest} {...composerProps}
+        modelChoice={{title:top?"Replace character":"OpenJutsu",subtitle:screen.subtitle,options:screen.options}}
+        onCapability={id=>{location.hash=id===replaceRoute?.manifest.id?"openjutsu/multi":`${top?"video/transform/person":"openjutsu"}/${id}`;}}
         project={project} workers={localWorkers}/>;
     }
     if(screen.kind==="experimental"){
@@ -931,6 +939,7 @@ function TeamWorkspace({user,workspace,workspaces,onWorkspace,call,authorized,of
     transform:inProject(project=>transform&&page(<TransformVideo manifests={catalogue} statuses={statuses} user={user} workspace={workspace} project={project}
       workers={transform.choice==="reframe"?localWorkers:runWorkers} call={call} canQueue={canCreate} authorized={authorized}
       onCapability={setCapabilityId} onQueued={refresh} onModels={openModels} choice={transform.choice} reframe={transform.reframe}
+      replace={transform.person?top=>renderOpenJutsu(project,transform.person!,top):undefined}
       swapThing={objectSwapLocal?top=><TeamComposer key={`${project.id}:${objectSwapLocal.id}`} top={top} manifest={objectSwapLocal}
         workflowIds={[objectSwapLocal.id]} onCapability={choose} {...composerProps} project={project} workers={runWorkers}/>
         :swapMaskRoute&&swapEditRoute?top=>changeScreen(project,"swap",<SwapThingPanel {...screenAccess} key={project.id}
@@ -1007,12 +1016,10 @@ function TeamWorkspace({user,workspace,workspaces,onWorkspace,call,authorized,of
     <TopBar
       more={phone?runControls:undefined}
       brand={<img className="ds-topbar__brand-image" src={logo} alt="CreativeField"/>}
-      current={navigation.topBarHref}
+      current={currentTool?toolHref(currentTool):navigation.topBarHref}
       items={[
-        {label:"Video",href:"#video",menu:videoMenu,icon:<Clapperboard size={20}/>},
-        {label:"Image",href:"#image",menu:imageMenu,icon:<ImageIcon size={20}/>},
-        {label:"3D",href:"#3d",menu:threeDMenu},
-        ...(workspaceMenu.sections.includes("audio")?[{label:"Audio",href:"#audio"}]:[]),
+        ...TOOLS.filter(item=>menusByTool[item.tool]).map(item=>({label:item.label,href:item.href,icon:TOOL_ICONS[item.tool],
+          menu:{features:[],models:[],groups:menusByTool[item.tool],footer:item.tool==="create"||item.tool==="change"?menuFooter(workspaceMenu.videoFooter):undefined}})),
         {label:"All tools",href:"#make",icon:<LayoutGrid size={20}/>},
         ...(workspaceMenu.sections.includes("nodes")?[
           {label:"Models",href:"#catalogue",onSelect:openModels},{label:"Nodes",href:"#nodes"},

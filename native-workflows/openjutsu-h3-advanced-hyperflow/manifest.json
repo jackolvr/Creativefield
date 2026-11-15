@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "title": "OpenJutsu multiple characters (HyperFlow H3 Flash)",
   "category": "replacement",
+  "role": {"tool": "change", "task": "replace-person", "option": "several", "rank": 1, "order": 10, "label": "HyperFlow H3 Flash · 1–4 characters", "covers": ["one"]},
   "description": "Replace one to four people in a clip using HyperFlow H3 Flash and character references. Keep the source soundtrack.",
   "inputs": [
     {

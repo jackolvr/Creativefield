@@ -32,7 +32,9 @@ export function StartScreen({tools,onOpen,hosted=false}:{tools:StartTask[];onOpe
     {shown.length===0?<EmptyState title="No tool matches." action={<Button variant="ghost" onClick={()=>setQuery("")}>Show all tools</Button>}/>:
     <div className="cf-start__tools">{START_GROUPS.map(group=>{
         const tasks=shown.filter(t=>t.group===group);
+        /* One block per tool (Create, Change, Upscale, Film Studio), named so the four tools are visible. */
         return tasks.length>0?<Block key={group} label={group}>
+          <SectionHeader title={group}/>
           <PresetGrid label={group}>
             {tasks.map(t=>{const at=shown.indexOf(t),turn=pool.length?pool.slice((at*3+LOAD_TURN)%pool.length).concat(pool.slice(0,(at*3+LOAD_TURN)%pool.length)):[],own=examples[t.id]?`/examples/${examples[t.id]}`:t.thumb;return <PresetCard key={t.id} size="tool" featured={t.featured} promo={t.promo} video={t.video} thumb={own??turn[0]} thumbs={turn} label={t.label} hint={t.text} icon={ICONS[t.id]} onSelect={()=>{if(onOpen)onOpen(t);else location.hash=t.href.slice(1);}}/>;})}
           </PresetGrid>

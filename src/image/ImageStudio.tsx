@@ -11,16 +11,17 @@ import {LibraryButton} from "../team/LibraryChoice";
 import {ProductionContent} from "../team/ProductionWorkspace";
 import {SourceCredit,WorkflowDescription} from "../team/workflow-info";
 import { useEffect, useId, useRef, useState, type ReactNode, type RefObject, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { Clapperboard, Images, Maximize2, Pencil, RectangleHorizontal, Sparkles, Trash2 } from "lucide-react";
+import { Clapperboard, Images, Maximize2, Pencil, RectangleHorizontal, Trash2 } from "lucide-react";
 import { countOptions, frameControls } from "../capabilities/frame-controls";
 import type { CapabilityManifestV2, Control, Readiness } from "../capabilities/types";
-import { UploadSlot, Block, Canvas, ConfirmDialog, GenerateButton, HintButton, Meta, ModelCard, Notice, Panel, PanelSection, ParamButton, Params, PromptField, Button, ContactSheet, Dialog, Flashlight, IconButton, InfoButton, MediaViewer, MediaViewerInfo, ResultGrid, ResultTile, CameraAngleSheet, ShimmerText, useToast, Row, SectionHeader, StatusText, TextField, Thumb, ThumbGrid, Toolbar, type ContactSheetItem, CompareWipe, LinkButton } from "../ds";
+import { UploadSlot, Block, Canvas, ConfirmDialog, GenerateButton, HintButton, Meta, ModelCard, Notice, Panel, PanelSection, ParamButton, Params, PromptField, Button, ContactSheet, Dialog, Flashlight, IconButton, InfoButton, MediaViewer, MediaViewerInfo, ResultGrid, ResultTile, CameraAngleSheet, useToast, Row, SectionHeader, StatusText, TextField, Thumb, ThumbGrid, Toolbar, type ContactSheetItem, CompareWipe, LinkButton } from "../ds";
 import {adjacentItem} from "../ds/MediaSequence";
 import {AngleBatchPanel} from "./AngleBatchPanel";
 import {IdentityPhotoset} from "./IdentityPhotoset";
 import {useRunInputs} from "./use-run-inputs";
 import type {AngleBatchAction} from "./angle-batch-action";
 import { assetUrl, workspacePath, type Call, type Asset, type Project, type Run, type Workspace, type CharacterRecord } from "../team/api";
+import {PromptEnhanceTools,usePromptExpander} from "../team/prompt-enhance";
 import { characterPath } from "../team/characters/state";
 import { activeRun, type ElementInputBinding } from "../team/state";
 import {RunDevelop} from "../team/RunDevelop";
@@ -160,7 +161,7 @@ function ControlField({
         placeholder={control.id === "prompt" ? "Describe the image to create" : `Enter ${control.label.toLowerCase()}`}
         value={typeof value === "string" ? value : ""}
         onChange={onChange}
-        tools={control.id === "prompt" && expand ? <><Button variant="ghost" disabled={disabled || expand.busy} onClick={expand.run}><Sparkles size={14}/>{expand.busy ? <ShimmerText>Enhancing prompt</ShimmerText> : "Enhance prompt"}</Button><InfoButton title="Prompt enhancement"><Meta>One shared local caption model (Qwen3.5 9B) enhances prompts for images and videos — no cloud, no per-workflow model.</Meta><Meta>It keeps your concrete parts and adds visible detail; Midjourney flags like --ar are removed before the model reads it.</Meta></InfoButton></> : undefined}
+        tools={control.id === "prompt" && expand ? <PromptEnhanceTools busy={expand.busy} run={expand.run} disabled={disabled}/> : undefined}
       />
     );
   }
@@ -307,8 +308,7 @@ export function ImageStudio({
   /* Results and history are one gallery: newest runs first, every real image equal. */
   const resultItems = visibleRuns.flatMap((run) => outputsOf(run).map((asset) => ({ run, asset })));
   const [viewing, setViewing] = useState<Asset | null>(null);
-  const [expandingPrompt, setExpandingPrompt] = useState(false);
-  const viewingRun=resultItems.find(item=>item.asset.id===viewing?.id)?.run;
+    const viewingRun=resultItems.find(item=>item.asset.id===viewing?.id)?.run;
   const viewingInputs=useRunInputs(workspace.id,viewingRun?[viewingRun]:[],1);
   const [deleteAsset,setDeleteAsset]=useState<Asset|null>(null),[deleting,setDeleting]=useState(false),[deleteError,setDeleteError]=useState("");
   const [sheet, setSheet] = useState<{ run: Run; items: ContactSheetItem[]; caption: string } | null>(null);
@@ -421,19 +421,15 @@ export function ImageStudio({
   const title = manifest.title.split(" (")[0];
   const changeControl = (id: string, value: string | number | boolean) =>
     onDraftChange({ ...draft, controls: { ...draft.controls, [id]: value } });
-  /* One shared prompt expander for every workflow; it only rewrites the caption, never the run's settings. */
-  const expandPrompt = async () => {
-    if(!batchContext||busy||expandingPrompt)return;
-    const text=String(draft.controls.prompt??"").trim();
-    if(!text){toast("Write a prompt first.");return;}
-    setExpandingPrompt(true);
-    try{
-      const result=await batchContext.call<{text:string;seconds?:number}>(workspacePath(workspace.id,"prompt-expand"),"POST",{prompt:text});
-      changeControl("prompt",result.text);
-      toast(`Prompt expanded${result.seconds?` in ${result.seconds} s`:""}`);
-    }catch(e){toast((e as Error).message);}
-    finally{setExpandingPrompt(false);}
-  };
+  const promptEnhancer = usePromptExpander({
+    call: (batchContext?.call ?? (async () => { throw new Error("Prompt enhancement is unavailable."); })) as Call,
+    workspaceId: workspace.id,
+    getPrompt: () => String(draft.controls.prompt ?? ""),
+    setPrompt: text => changeControl("prompt", text),
+    disabled: busy || !batchContext,
+    notify: toast,
+  });
+  /* The shared prompt expander: one service for image and video prompts, never changing run settings. */
   const generate = () => {
     if(angleBatchMode){if(angleAction?.enabled)angleAction.invoke();return;}
     if (!status.enabled) return;
@@ -481,7 +477,7 @@ export function ImageStudio({
               {modelOptions&&modelOptions.length>1&&onModel?<TeamChoice variant="model" label="Model" display={capabilityFunction(manifest)} subtitle={`${manifest.title.split(" (")[0]}${workerName?` · ${workerName}`:""}`} image={promoStillForImage(manifest.id,adStudio,remixStudio)} value={manifest.id} options={modelOptions} onChange={onModel}/>:<ModelCard title={capabilityFunction(manifest)} subtitle={`${manifest.title.split(" (")[0]}${workerName?` · ${workerName}`:""}`} image={promoStillForImage(manifest.id,adStudio,remixStudio)} />}
               {workspace.role !== "viewer" && <LinkButton variant="ghost" href={`#nodes/feature/${manifest.id}`}>Edit in nodes</LinkButton>}
               {sharedCreate&&controls.filter(control=>control.id==="prompt").map((control) => (
-                <ControlField key={control.id} control={control} textareaRef={promptArea} disabled={busy} value={draft.controls[control.id]} onChange={(value) => changeControl(control.id, value)} expand={control.id==="prompt"&&batchContext?{busy:expandingPrompt,run:()=>void expandPrompt()}:undefined} />
+                <ControlField key={control.id} control={control} textareaRef={promptArea} disabled={busy} value={draft.controls[control.id]} onChange={(value) => changeControl(control.id, value)} expand={control.id==="prompt"?{busy:promptEnhancer.busy,run:promptEnhancer.run}:undefined} />
               ))}
               <div className={visibleImageInputs.length>1?"cf-image-input-grid":"cf-image-input-list"}>
               {visibleImageInputs.map((port) => {
@@ -516,7 +512,7 @@ export function ImageStudio({
               })}
               </div>
               {imageInputs.length > 0 && imageAssets.length === 0 && <Meta>Generate or upload an image in this project first.</Meta>}
-              {!sharedCreate&&controls.filter(control=>control.id==="prompt").map(control=><ControlField key={control.id} control={control} textareaRef={promptArea} disabled={busy} value={draft.controls[control.id]} onChange={value=>changeControl(control.id,value)} expand={batchContext?{busy:expandingPrompt,run:()=>void expandPrompt()}:undefined}/>)}
+              {!sharedCreate&&controls.filter(control=>control.id==="prompt").map(control=><ControlField key={control.id} control={control} textareaRef={promptArea} disabled={busy} value={draft.controls[control.id]} onChange={value=>changeControl(control.id,value)} expand={control.id==="prompt"?{busy:promptEnhancer.busy,run:promptEnhancer.run}:undefined}/>)}
               {anglesRoute&&<PanelSection label="Angles">
                 {angleBatchMode
                   ? <AngleBatchPanel manifest={manifest} draft={draft} workspace={workspace} project={project} {...batchContext!} runs={listedImageRuns} disabled={externalBusy||readiness.state!=="ready"} onBusy={setBatchBusy} onChanged={batchContext.onChanged} onAction={setAngleAction} onKnownRuns={setAngleKnownRuns} onSubmittingCount={setAngleSubmittingCount}/>

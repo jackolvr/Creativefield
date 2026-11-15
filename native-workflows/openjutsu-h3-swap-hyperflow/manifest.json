@@ -4,6 +4,7 @@
   "version": "0.2.0",
   "title": "OpenJutsu character swap (HyperFlow H3 Flash)",
   "category": "replacement",
+  "role": {"tool": "change", "task": "replace-person", "option": "one", "rank": 4, "order": 10, "label": "HyperFlow H3 Flash · One character", "pinnedOnly": true},
   "description": "Swap the person in a clip for the character in one picture. The scene, the camera, the performance and the clip's own sound stay. Runs HyperFlow H3 Flash on this computer; one clip of 5 to 15 seconds with the person in its first frame. A clip where the person leaves the frame stops with a message.",
   "inputs": [
     {

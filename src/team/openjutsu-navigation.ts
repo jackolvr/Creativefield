@@ -1,5 +1,4 @@
-import {isOpenJutsuAdvanced,OPENJUTSU_ADVANCED_FLASH_ID,OPENJUTSU_ADVANCED_ID} from "../capabilities/openjutsu-advanced";
-import {isOpenJutsuSingleSwap,routeTask} from "../capabilities/tasks";
+import {roleCandidates,roleChoices,roleOf,routeRole} from "../capabilities/roles";
 import type {CapabilityManifestV2} from "../capabilities/types";
 
 type Choice = {value:string;label:string;note?:string};
@@ -8,18 +7,16 @@ type OpenJutsuScreen =
   | {kind:"experimental"}
   | {kind:"router"};
 
-const advancedFlash=(manifest:CapabilityManifestV2)=>manifest.id===OPENJUTSU_ADVANCED_FLASH_ID;
+/* Replace character (Change › Person): which workflow runs is the manifests' role (tool "change", task
+   "replace-person"), never a list of ids here. The best-ranked ready workflow is the default; the others that
+   are ready are the choices (one per option, see roleChoices); a link or a saved run may name any of them,
+   including a link-only one. Ready means ready on this computer (`localReady`), else in `ready`. */
+const TOOL="change",TASK="replace-person";
+const labelOf=(manifest:CapabilityManifestV2)=>roleOf(manifest)?.label??manifest.title;
 
-function workflowLabel(manifest:CapabilityManifestV2){
-  if(advancedFlash(manifest))return "HyperFlow H3 Flash · 1–4 characters";
-  if(manifest.id===OPENJUTSU_ADVANCED_ID)return "MiniMax H3 · Multiple characters";
-  return `${manifest.title.split(" (")[1]?.replace(")","")??"MiniMax H3"} · One character`;
-}
-
-export function resolveOpenJutsu({hash,catalogue,flash,localReady,ready,hosted,experiment}: {
+export function resolveOpenJutsu({hash,catalogue,localReady,ready,hosted,experiment}: {
   hash:string;
   catalogue:CapabilityManifestV2[];
-  flash?:CapabilityManifestV2;
   localReady?:ReadonlySet<string>;
   ready:CapabilityManifestV2[];
   hosted:boolean;
@@ -28,22 +25,21 @@ export function resolveOpenJutsu({hash,catalogue,flash,localReady,ready,hosted,e
   const [section,subroute]=hash.replace(/^#/,"").split("/");
   const requested=section==="openjutsu"?subroute:undefined;
   const local=catalogue.filter(manifest=>manifest.coverage.local==="implemented");
-  const flashReady=flash??local.find(manifest=>localReady?.has(manifest.id)&&advancedFlash(manifest));
-  const pinned=local.find(manifest=>manifest.id===requested);
-  const advanced=local.find(manifest=>manifest.id===OPENJUTSU_ADVANCED_ID);
-  const single=routeTask("video.swap-person",ready)?.pack??routeTask("video.swap-person",local)?.pack;
-  const fallback=flashReady??single??advanced;
-  const explicit=pinned&&(isOpenJutsuAdvanced(pinned.id)||isOpenJutsuSingleSwap(pinned.id))?pinned:undefined;
-  const manifest=explicit??(requested==="advanced"?flashReady??advanced??single:fallback);
+  const readyIds=localReady??new Set(ready.map(manifest=>manifest.id));
+  const isReady=(manifest:CapabilityManifestV2)=>readyIds.has(manifest.id);
+  const people=roleCandidates(TOOL,TASK,local);
+  const pinned=people.find(manifest=>manifest.id===requested);
+  const manifest=pinned??(requested==="advanced"?routeRole(TOOL,TASK,local,isReady,"several"):routeRole(TOOL,TASK,local,isReady));
   const localAvailable=!!manifest;
   if(hosted||requested==="cloud")return {screen:{kind:"router"},localAvailable};
   if(requested==="multi")return {screen:{kind:"experimental"},localAvailable};
   if(!manifest)return {screen:{kind:"router"},localAvailable};
 
+  // Nothing ready yet: offer the best workflow of each option, so the screen says what each one needs.
+  const readyOnes=roleChoices(people.filter(isReady));
+  const shown=readyOnes.length?readyOnes:roleChoices(people);
   const choices=new Map<string,Choice>();
-  for(const option of [flashReady,...(flashReady?[]:[advanced,single]),manifest]){
-    if(option)choices.set(option.id,{value:option.id,label:workflowLabel(option)});
-  }
+  for(const option of [...shown,manifest])choices.set(option.id,{value:option.id,label:labelOf(option)});
   if(experiment)choices.set(experiment,{value:experiment,label:"SCAIL-2 · Multiple characters",note:"Experimental"});
-  return {screen:{kind:"composer",manifest,subtitle:workflowLabel(manifest),options:[...choices.values()]},localAvailable};
+  return {screen:{kind:"composer",manifest,subtitle:labelOf(manifest),options:[...choices.values()]},localAvailable};
 }

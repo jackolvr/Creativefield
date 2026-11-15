@@ -31,6 +31,10 @@ export const generationOf=(asset:Asset|undefined):FeedGeneration|undefined=>{
 
 /** What the Enhance steps did to this file ("Upscaled ×2 · Smooth"); "Enhanced" when the steps are not known. */
 export const finishWords=(upscale:FeedUpscale|undefined,stepOf?:Record<string,string>,withScale=true)=>{if(!upscale)return [];const words=finishDone(upscale.steps??(upscale.capabilityId?[upscale.capabilityId]:undefined),stepOf,withScale?upscale.scale:undefined);return words.length?words:[upscale.scale&&upscale.scale>1&&withScale?`Upscaled ×${upscale.scale}`:upscale.scale&&upscale.scale>1?"Upscaled":"Enhanced"];};
+/** Plain names for the upscale workflows that produce upscaled siblings; the catalogue titles drop their model in brackets. */
+const UPSCALE_MODEL_NAMES:Record<string,string>={"recavsr-video-upscale":"ReCaVSR 2K","seedvr2-video-upscale":"SeedVR2","nvidia-vfx-upscale":"NVIDIA VFX","realesrgan-x4":"Real-ESRGAN","z-image-2k-upscale":"Z-Image 2K"};
+export const upscaleModelName=(capabilityId:string|undefined,titles:Record<string,string>)=>capabilityId?(UPSCALE_MODEL_NAMES[capabilityId]??jobQueueTitle(capabilityId,titles)):undefined;
+
 /** The quiet card label: the app's mode, with the finishing steps beside it ("Image to video · Smooth"). */
 export const feedModeLabel=(mode:string|undefined,done:readonly string[]):string|undefined=>[mode,...done].filter(Boolean).join(" · ")||undefined;
 
@@ -45,7 +49,7 @@ export function assetCardFacts(asset:Asset,titles:Record<string,string>,stepOf?:
   }
   const lines=[jobQueueTitle(generation?.capabilityId??"",titles),time(generation?.seconds),file].filter(Boolean) as string[];
   const better=upscaled?.assetId?finishWords({scale:upscaled.scale,capabilityId:upscaled.capabilityId},stepOf).join(" · "):"";
-  if(upscaled?.assetId){const t=upscaled.capabilityId?jobQueueTitle(upscaled.capabilityId,titles):"";lines.push(`${better} available${t?` · ${t}`:""}${upscaled.seconds?` · ${time(upscaled.seconds)}`:""}`);}
+  if(upscaled?.assetId){const t=upscaleModelName(upscaled.capabilityId,titles)??"";lines.push(`${better} available${t?` · ${t}`:""}${upscaled.seconds?` · ${time(upscaled.seconds)}`:""}`);}
   return {hint:upscaled?.assetId?"Original":undefined,lines,compare:upscaled?.assetId?{assetId:upscaled.assetId,name:better}:undefined};
 }
 

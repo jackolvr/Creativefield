@@ -23,13 +23,13 @@ import {producerRunId,useRecreate,useRecreateById} from "./recreate";
 import {capabilityHasControl,isTrackedMaskWorkflow} from "../capabilities/lookup";
 import {sharpenRunBody} from "./sharpen-run";
 import {libraryFeedAssets,useStoryboardFeed,type FeedScope} from "./media-feed";
-import {assetCardFacts,assetFormat,assetSize,feedModeLabel,finishWords,generationOf,runCardFacts,type FeedCard} from "./feed-facts";
+import {assetCardFacts,assetFormat,assetSize,feedModeLabel,finishWords,generationOf,runCardFacts,upscaleModelName,type FeedCard} from "./feed-facts";
 
 /** The extra facts a file carries when it is the result of an upscale pass. */
 function upscaleFactsFor(asset:Asset|undefined,titles:Record<string,string>):Array<{label:string;value:ReactNode}>{
   const generation=generationOf(asset),up=generation?.upscale??generation?.upscaled;
   if(!up?.scale)return [];
-  const model=up.capabilityId?jobQueueTitle(up.capabilityId,titles):undefined;
+  const model=upscaleModelName(up.capabilityId,titles);
   return [{label:"Upscale",value:`×${up.scale}${up.seconds?` · ${up.seconds} s`:""}`},...(model?[{label:"Upscale model",value:model}]:[])];
 }
 
@@ -152,13 +152,13 @@ function ProjectRuns({workspace,project,call,canEdit,authorized,version,user,tit
       const sourceShape=up.sourceWidth&&up.sourceHeight?`${up.sourceWidth}×${up.sourceHeight}`:assetSize(source);
       facts.push({label:"Source",value:[jobQueueTitle(up.parentCapabilityId??"",titles),sourceShape,up.sourceDurationSeconds?`${up.sourceDurationSeconds.toFixed(1)} s`:undefined,up.parentSeconds?`rendered in ${up.parentSeconds} s`:undefined].filter(Boolean).join(" · ")});
       facts.push({label:"Upscale",value:`×${up.scale}${up.seconds?` · ${up.seconds} s`:""}`});
-      if(up.capabilityId)facts.push({label:"Upscale model",value:jobQueueTitle(up.capabilityId,titles)});
+      if(up.capabilityId)facts.push({label:"Upscale model",value:upscaleModelName(up.capabilityId,titles)});
       const settings=[controls.scale!==undefined?`×${controls.scale}`:undefined,controls.decoder,controls.color_fix&&controls.color_fix!=="none"?controls.color_fix:undefined,controls.kernels].filter(Boolean).join(" · ");
       if(settings)facts.push({label:"Settings",value:settings});
     }else if(linked?.scale){
       /* The result tile shows the original; its upscaled sibling is the media in Compare. */
       facts.push({label:"Upscale",value:`×${linked.scale}${linked.seconds?` · ${linked.seconds} s`:""} available`});
-      if(linked.capabilityId)facts.push({label:"Upscale model",value:jobQueueTitle(linked.capabilityId,titles)});
+      if(linked.capabilityId)facts.push({label:"Upscale model",value:upscaleModelName(linked.capabilityId,titles)});
     }
     const format=assetFormat(output);
     if(format)facts.push({label:"Output",value:format});
@@ -187,7 +187,7 @@ function ProjectRuns({workspace,project,call,canEdit,authorized,version,user,tit
   const visibleFeedRuns=feedRuns.filter(run=>{
     const output=outputAsset(run,detail[run.id]??run);
     const parent=generationOf(output)?.upscale?.parentRunId;
-    return !(parent&&feedRunIds.has(parent));
+    return !(parent&&parent!==run.id&&feedRunIds.has(parent));
   });
   const feedFilms=feed?.kind==="video"&&!onlyCurrent?storyboard.films.filter(film=>film.assetId):[];
   const represented=new Set([...visibleFeedRuns.flatMap(run=>run.output_ids),...feedFilms.flatMap(film=>film.assetId?[film.assetId]:[])]);

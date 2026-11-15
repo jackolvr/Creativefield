@@ -4,6 +4,7 @@
   "version": "0.2.0",
   "title": "OpenJutsu character swap",
   "category": "replacement",
+  "role": {"tool": "change", "task": "replace-person", "option": "one", "rank": 2, "order": 10, "label": "MiniMax H3 · One character"},
   "description": "Swap the person in a clip for the character in one picture. The scene, the camera, the performance and the clip's own sound stay. Runs MiniMax H3 with the character-swap LoRA on this computer; one clip of 5 to 15 seconds with the person in its first frame. A clip where the person leaves the frame stops with a message.",
   "inputs": [
     {

@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Code map</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js" integrity="sha384-CjloA8y00+1SDAUkjs099PVfnY2KmDC2BZnws9kh8D/lX1s46w6EPhpXdqMfjK6i" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/3d-force-graph@1.73.3/dist/3d-force-graph.min.js" integrity="sha384-SIcVySj+Cd1g+cwoLNCdr/osXU15HLXCxfaSzFNkZICYeKS7I2YxhyggCijT8JHA" crossorigin="anonymous"></script>
+<style>
+:root{--bg:#0b0d10;--panel:#12151a;--line:#1f242c;--text:#e8edf2;--muted:rgba(232,237,242,.55);--faint:rgba(232,237,242,.3);--accent:#2fa8ff;--in:#f2b84b;--cycle:#ff8a3d;--r:8px}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:13px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}
+button,input,select{font:inherit;color:inherit}
+.app{display:grid;grid-template-columns:260px 1fr 360px;grid-template-rows:auto 1fr;height:100vh}
+header{grid-column:1/-1;display:flex;align-items:center;gap:16px;padding:10px 16px;border-bottom:1px solid var(--line)}
+header h1{font-size:15px;font-weight:600;margin:0}
+.stats{color:var(--muted);font-size:12px}
+.spacer{flex:1}
+.seg{display:inline-flex;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:2px}
+.seg button{background:none;border:0;padding:4px 12px;border-radius:6px;cursor:pointer;color:var(--muted)}
+.seg button[aria-pressed=true]{background:#1c2129;color:var(--text)}
+label.check{display:flex;align-items:center;gap:6px;color:var(--muted);cursor:pointer;font-size:12px}
+aside{overflow:auto;padding:12px 14px;border-right:1px solid var(--line)}
+aside.right{border-right:0;border-left:1px solid var(--line)}
+input[type=search]{width:100%;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:7px 10px;outline:none}
+input[type=search]:focus{border-color:var(--accent)}
+input::placeholder{color:rgba(255,255,255,.3)}
+h2{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);margin:18px 0 6px}
+.area{display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:6px;cursor:pointer;color:var(--muted)}
+.area:hover,.area.on{background:var(--panel);color:var(--text)}
+.dot{width:9px;height:9px;border-radius:50%;flex:none}
+.area .n{margin-left:auto;font-variant-numeric:tabular-nums;color:var(--faint);font-size:12px}
+main{position:relative;overflow:hidden}
+canvas{display:block;width:100%;height:100%;cursor:grab}
+canvas:active{cursor:grabbing}
+#g3{position:absolute;inset:0;display:none}
+.tip{position:absolute;pointer-events:none;background:#1a1e25;border:1px solid var(--line);border-radius:6px;padding:5px 8px;font-size:12px;white-space:nowrap;display:none}
+.hint{position:absolute;left:14px;bottom:12px;color:var(--faint);font-size:12px}
+.file{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;word-break:break-all}
+.big{font-size:14px;margin:2px 0 4px}
+.facts{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:10px 0}
+.fact{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:8px}
+.fact b{display:block;font-size:17px;font-weight:600;font-variant-numeric:tabular-nums}
+.fact span{color:var(--faint);font-size:11px}
+ul.rows{list-style:none;margin:0;padding:0}
+ul.rows li{display:flex;gap:8px;align-items:baseline;padding:3px 6px;border-radius:6px;cursor:pointer}
+ul.rows li:hover{background:var(--panel)}
+ul.rows li .file{flex:1;color:var(--muted)}
+ul.rows li:hover .file{color:var(--text)}
+ul.rows li em{font-style:normal;color:var(--faint);font-size:11px;font-variant-numeric:tabular-nums}
+.desc{display:block;color:var(--faint);font-size:11px;line-height:1.35;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:system-ui,sans-serif}
+ul.rows li .stack{flex:1;min-width:0}
+.about{font-size:13px;line-height:1.5;color:var(--text);margin:8px 0 4px}
+.about.weak{color:var(--muted)}
+.tip{max-width:460px;white-space:normal}
+.tip .desc{white-space:normal}
+.tag{font-size:10px;padding:1px 5px;border-radius:4px;border:1px solid var(--line);color:var(--faint)}
+.note{color:var(--muted);font-size:12px;margin:6px 0}
+.more{background:none;border:0;color:var(--accent);cursor:pointer;padding:4px 6px;font-size:12px}
+.legend{display:flex;gap:14px;color:var(--faint);font-size:11px;margin-top:6px;flex-wrap:wrap}
+.legend i{display:inline-block;width:14px;height:2px;vertical-align:middle;margin-right:4px}
+@media (max-width:1100px){.app{grid-template-columns:220px 1fr}.right{grid-column:1/-1;max-height:40vh;border-left:0;border-top:1px solid var(--line)}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Code map</h1>
+    <span class="stats" id="stats"></span>
+    <span class="spacer"></span>
+    <label class="check"><input type="checkbox" id="types"> Type-only imports</label>
+    <div class="seg" role="group" aria-label="View">
+      <button id="v-areas" aria-pressed="true">Areas</button>
+      <button id="v-files" aria-pressed="false">Files</button>
+      <button id="v-3d" aria-pressed="false">3D</button>
+    </div>
+  </header>
+  <aside>
+    <input type="search" id="q" placeholder="Find a file or what it does">
+    <ul class="rows" id="hits"></ul>
+    <h2>Areas</h2>
+    <div id="areas"></div>
+  </aside>
+  <main>
+    <canvas id="c"></canvas>
+    <div id="g3"></div>
+    <div class="tip" id="tip"></div>
+    <div class="hint" id="hint"></div>
+  </main>
+  <aside class="right" id="side"></aside>
+</div>
+<script>
+const DATA=/*__DATA__*/null;
+const files=DATA.files, N=files.length;
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+/* Areas and their colours. */
+const areaNames=[...new Set(files.map(f=>f.a))].sort();
+const palette=[...d3.schemeTableau10,"#8dd3c7","#bebada","#fb8072","#80b1d3","#fdb462","#b3de69","#fccde5","#bc80bd","#ccebc5","#ffed6f","#a6cee3","#b2df8a"];
+const color=new Map(areaNames.map((a,i)=>[a,palette[i%palette.length]]));
+
+let showTypes=false, view="areas", selected=-1, areaFilter=null;
+const inCycle=new Map(); DATA.cycles.forEach((c,i)=>c.forEach(n=>inCycle.set(n,i)));
+
+/* Adjacency for the current edge set. */
+let out=[],inn=[];
+function rebuild(){
+  out=files.map(()=>[]);inn=files.map(()=>[]);
+  for(const l of DATA.links){if(l.type&&!showTypes)continue;out[l.s].push(l.t);inn[l.t].push(l.s);}
+}
+function reach(start,adj){const seen=new Set([start]),q=[start];while(q.length){const v=q.shift();for(const w of adj[v])if(!seen.has(w)){seen.add(w);q.push(w);}}seen.delete(start);return seen;}
+let blast=[];
+function metrics(){blast=files.map((_,i)=>reach(i,inn).size);}
+rebuild();metrics();
+
+const runtime=DATA.links.filter(l=>!l.type).length;
+$("stats").textContent=`${N} files · ${DATA.links.length} imports (${runtime} runtime) · ${DATA.cycles.length} import cycles · ${DATA.roots.join(", ")}`;
+
+/* What a file is about, in one short line: its own words, else its first export's, else what it exports. */
+const firstSentence=t=>{const m=t.match(/^(.{20,200}?[.;])(\s|$)/);return m?m[1]:t.length>180?t.slice(0,177)+"…":t;};
+const shortAbout=f=>f.ds==="file"?firstSentence(f.d):f.ds==="export"?f.of+": "+firstSentence(f.d):f.x.length?"Exports "+f.x.slice(0,5).join(", ")+(f.x.length>5?" …":""):f.k==="css"?"Stylesheet":"";
+/* ---------- left: search and areas ---------- */
+function renderAreas(){
+  const counts=d3.rollup(files,v=>v.length,f=>f.a);
+  $("areas").innerHTML=areaNames.map(a=>`<div class="area${areaFilter===a?" on":""}" data-a="${esc(a)}"><span class="dot" style="background:${color.get(a)}"></span>${esc(a)}<span class="n">${counts.get(a)}</span></div>`).join("");
+  $("areas").querySelectorAll(".area").forEach(el=>el.onclick=()=>{areaFilter=areaFilter===el.dataset.a?null:el.dataset.a;selected=-1;renderAreas();if(view==="3d")layout3d();else if(view!=="files")setView("files");else{layoutFiles();}renderSide();});
+}
+$("q").oninput=()=>{
+  const q=$("q").value.trim().toLowerCase();
+  if(!q){$("hits").innerHTML="";return;}
+  const score=f=>f.p.toLowerCase().includes(q)?3:f.x.some(x=>x.toLowerCase().includes(q))?2:f.d.toLowerCase().includes(q)?1:0;
+  const hits=files.map((f,i)=>[f,i,score(f)]).filter(h=>h[2]).sort((a,b)=>b[2]-a[2]).slice(0,14);
+  $("hits").innerHTML=hits.map(([f,i])=>row(i)).join("")||`<li><span class="note">No file matches</span></li>`;
+  $("hits").querySelectorAll("li[data-i]").forEach(li=>li.onclick=()=>select(+li.dataset.i));
+};
+
+/* ---------- canvas ---------- */
+const canvas=$("c"),ctx=canvas.getContext("2d");let W=0,H=0,dpr=1,transform=d3.zoomIdentity;
+function size(){const r=canvas.parentElement.getBoundingClientRect();dpr=devicePixelRatio||1;W=r.width;H=r.height;canvas.width=W*dpr;canvas.height=H*dpr;g3?.width(W).height(H);draw();}
+addEventListener("resize",size);
+
+/* Area view: one bubble per area, arrows weighted by imports between them. */
+let areaNodes=[],areaLinks=[],areaSim=null;
+function layoutAreas(){
+  const byArea=d3.group(files.map((f,i)=>[f,i]),([f])=>f.a);
+  areaNodes=areaNames.map(a=>({id:a,n:byArea.get(a).length,lines:d3.sum(byArea.get(a),([f])=>f.l)}));
+  const idx=new Map(areaNodes.map((n,i)=>[n.id,i])),w=new Map();
+  for(const l of DATA.links){if(l.type&&!showTypes)continue;const a=files[l.s].a,b=files[l.t].a;if(a===b)continue;const k=a+"\0"+b;w.set(k,(w.get(k)||0)+1);}
+  areaLinks=[...w].map(([k,v])=>{const [a,b]=k.split("\0");return {source:idx.get(a),target:idx.get(b),w:v};});
+  areaNodes.forEach(n=>n.r=8+Math.sqrt(n.n)*3.2);
+  areaSim?.stop();
+  areaSim=d3.forceSimulation(areaNodes).force("link",d3.forceLink(areaLinks).distance(l=>140+60/Math.sqrt(l.w)).strength(l=>Math.min(1,l.w/40))).force("charge",d3.forceManyBody().strength(-900)).force("collide",d3.forceCollide(n=>n.r+18)).force("center",d3.forceCenter(0,0)).on("tick",draw);
+}
+
+/* File view: every file, pulled towards its area's place on a ring. */
+let fileNodes=[],fileLinks=[],fileSim=null;
+function layoutFiles(){
+  const shown=files.map((f,i)=>i).filter(i=>!areaFilter||files[i].a===areaFilter||out[i].some(t=>files[t].a===areaFilter)||inn[i].some(s=>files[s].a===areaFilter));
+  const keep=new Set(shown),old=new Map(fileNodes.map(n=>[n.i,n]));
+  const ring=new Map(areaNames.map((a,k)=>{const t=k/areaNames.length*Math.PI*2;return [a,[Math.cos(t)*420,Math.sin(t)*420]];}));
+  fileNodes=shown.map(i=>{const o=old.get(i);const [cx,cy]=ring.get(files[i].a);return o??{i,x:cx+Math.random()*40-20,y:cy+Math.random()*40-20};});
+  const at=new Map(fileNodes.map((n,k)=>[n.i,k]));
+  fileLinks=DATA.links.filter(l=>(showTypes||!l.type)&&keep.has(l.s)&&keep.has(l.t)).map(l=>({source:at.get(l.s),target:at.get(l.t),type:l.type,lazy:l.lazy}));
+  fileNodes.forEach(n=>n.r=2.5+Math.sqrt(inn[n.i].length)*1.6);
+  const focus=areaFilter?null:ring;
+  fileSim?.stop();
+  fileSim=d3.forceSimulation(fileNodes)
+    .force("link",d3.forceLink(fileLinks).distance(30).strength(.08))
+    .force("charge",d3.forceManyBody().strength(-26).distanceMax(260))
+    .force("collide",d3.forceCollide(n=>n.r+1.5))
+    .force("x",d3.forceX(n=>focus?focus.get(files[n.i].a)[0]:0).strength(focus?.07:.02))
+    .force("y",d3.forceY(n=>focus?focus.get(files[n.i].a)[1]:0).strength(focus?.07:.02))
+    .alphaDecay(.03).on("tick",draw);
+}
+
+/* 3D view: the same files and imports in space; drag to orbit, scroll to zoom, click a file to select it. */
+let g3=null;
+function shownFiles(){return files.map((f,i)=>i).filter(i=>!areaFilter||files[i].a===areaFilter||out[i].some(t=>files[t].a===areaFilter)||inn[i].some(s=>files[s].a===areaFilter));}
+function layout3d(){
+  const el=$("g3"),keep=new Set(shownFiles());
+  const nodes=[...keep].map(i=>({id:i}));
+  const links=DATA.links.filter(l=>(showTypes||!l.type)&&keep.has(l.s)&&keep.has(l.t)).map(l=>({source:l.s,target:l.t,type:l.type}));
+  if(!g3){
+    g3=ForceGraph3D()(el).backgroundColor("#0b0d10").showNavInfo(false)
+      .nodeLabel(n=>`<div style="max-width:420px;font:12px system-ui">${esc(files[n.id].p)} · ${inn[n.id].length} importers · blast ${blast[n.id]}<div style="opacity:.6">${esc(shortAbout(files[n.id]))}</div></div>`)
+      .nodeVal(n=>1+inn[n.id].length*.6).nodeOpacity(.92).nodeResolution(10)
+      .linkDirectionalArrowLength(2.5).linkDirectionalArrowRelPos(1).linkOpacity(.35)
+      .onNodeClick(n=>select(n.id)).onBackgroundClick(()=>{selected=-1;renderSide();paint3d();});
+  }
+  g3.width(W).height(H).graphData({nodes,links});
+  paint3d();
+}
+function paint3d(){
+  if(!g3)return;
+  const sel=selected,near=new Set(),deps=sel>=0?reach(sel,inn):new Set();
+  if(sel>=0){out[sel].forEach(t=>near.add(t));inn[sel].forEach(s=>near.add(s));}
+  const id=v=>typeof v==="object"?v.id:v;
+  g3.nodeColor(n=>sel<0||n.id===sel||near.has(n.id)?(n.id===sel?"#ffffff":color.get(files[n.id].a)):deps.has(n.id)?color.get(files[n.id].a):"#2a2f37")
+    .linkColor(l=>sel<0?(l.type?"rgba(232,237,242,.15)":"rgba(232,237,242,.35)"):id(l.source)===sel?"#2fa8ff":id(l.target)===sel?"#f2b84b":"rgba(232,237,242,.04)")
+    .linkWidth(l=>sel>=0&&(id(l.source)===sel||id(l.target)===sel)?1.2:0);
+}
+function focus3d(i){
+  if(!g3)return;const n=g3.graphData().nodes.find(n=>n.id===i);if(!n||n.x===undefined)return;
+  const d=90,r=1+d/Math.hypot(n.x,n.y,n.z||1);
+  g3.cameraPosition({x:n.x*r,y:n.y*r,z:(n.z||0)*r},n,800);
+}
+
+function draw(){
+  ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,W,H);
+  ctx.translate(W/2+transform.x,H/2+transform.y);ctx.scale(transform.k,transform.k);
+  view==="areas"?drawAreas():drawFiles();
+}
+function arrow(x1,y1,x2,y2,r,head){const a=Math.atan2(y2-y1,x2-x1),ex=x2-Math.cos(a)*r,ey=y2-Math.sin(a)*r;ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(ex,ey);ctx.stroke();ctx.beginPath();ctx.moveTo(ex,ey);ctx.lineTo(ex-Math.cos(a-.4)*head,ey-Math.sin(a-.4)*head);ctx.lineTo(ex-Math.cos(a+.4)*head,ey-Math.sin(a+.4)*head);ctx.closePath();ctx.fill();}
+let hoverArea=null;
+function drawAreas(){
+  const max=d3.max(areaLinks,l=>l.w)||1;
+  for(const l of areaLinks){
+    const hot=hoverArea&&(l.source.id===hoverArea||l.target.id===hoverArea);
+    const c=hot?(l.source.id===hoverArea?"rgba(47,168,255,.85)":"rgba(242,184,75,.85)"):"rgba(232,237,242,.12)";
+    ctx.strokeStyle=c;ctx.fillStyle=c;ctx.lineWidth=(.6+3*Math.sqrt(l.w/max))/Math.sqrt(transform.k);
+    if(hoverArea&&!hot)continue;
+    arrow(l.source.x,l.source.y,l.target.x,l.target.y,l.target.r+3,6);
+  }
+  for(const n of areaNodes){
+    ctx.globalAlpha=hoverArea&&hoverArea!==n.id&&!areaLinks.some(l=>(l.source.id===hoverArea&&l.target.id===n.id)||(l.target.id===hoverArea&&l.source.id===n.id))?.25:1;
+    ctx.beginPath();ctx.arc(n.x,n.y,n.r,0,Math.PI*2);ctx.fillStyle=color.get(n.id);ctx.fill();
+    ctx.fillStyle="#e8edf2";ctx.font=`${12/Math.sqrt(transform.k)}px system-ui`;ctx.textAlign="center";ctx.fillText(n.id,n.x,n.y+n.r+13);
+    ctx.fillStyle="rgba(232,237,242,.45)";ctx.font=`${10/Math.sqrt(transform.k)}px system-ui`;ctx.fillText(`${n.n} files`,n.x,n.y+n.r+25);
+    ctx.globalAlpha=1;
+  }
+}
+function drawFiles(){
+  const sel=selected,near=new Set();let dependents=new Set();
+  if(sel>=0){out[sel].forEach(t=>near.add(t));inn[sel].forEach(s=>near.add(s));dependents=reach(sel,inn);}
+  ctx.lineWidth=.5/transform.k*1.6;
+  for(const l of fileLinks){
+    const s=fileNodes[l.source.index??l.source],t=fileNodes[l.target.index??l.target];
+    const a=l.source,b=l.target;
+    if(sel>=0){
+      if(a.i===sel){ctx.strokeStyle="rgba(47,168,255,.9)";ctx.fillStyle=ctx.strokeStyle;ctx.lineWidth=1.2/transform.k*1.6;arrow(a.x,a.y,b.x,b.y,b.r+1.5,4);continue;}
+      if(b.i===sel){ctx.strokeStyle="rgba(242,184,75,.9)";ctx.fillStyle=ctx.strokeStyle;ctx.lineWidth=1.2/transform.k*1.6;arrow(a.x,a.y,b.x,b.y,b.r+1.5,4);continue;}
+      continue;
+    }
+    ctx.strokeStyle=l.type?"rgba(232,237,242,.04)":"rgba(232,237,242,.07)";
+    ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
+  }
+  for(const n of fileNodes){
+    const dim=sel>=0&&n.i!==sel&&!near.has(n.i)&&!dependents.has(n.i);
+    ctx.globalAlpha=dim?.12:sel>=0&&dependents.has(n.i)&&!near.has(n.i)?.55:1;
+    ctx.beginPath();ctx.arc(n.x,n.y,n.r,0,Math.PI*2);ctx.fillStyle=color.get(files[n.i].a);ctx.fill();
+    if(inCycle.has(n.i)&&!dim){ctx.strokeStyle="#ff8a3d";ctx.lineWidth=1/transform.k*1.4;ctx.stroke();}
+    if(n.i===sel){ctx.strokeStyle="#fff";ctx.lineWidth=2/transform.k;ctx.stroke();}
+    const label=n.i===sel||(sel>=0&&near.has(n.i))||(transform.k>2.2&&!dim);
+    if(label){ctx.fillStyle="rgba(232,237,242,.85)";ctx.font=`${10/transform.k}px system-ui`;ctx.textAlign="left";ctx.fillText(files[n.i].p.split("/").pop(),n.x+n.r+2,n.y+3/transform.k);}
+  }
+  ctx.globalAlpha=1;
+}
+
+/* Zoom, pan, hover and click. */
+const zoom=d3.zoom().scaleExtent([.15,8]).on("zoom",e=>{transform=e.transform;draw();});
+d3.select(canvas).call(zoom).on("dblclick.zoom",null);
+function world(ev){const r=canvas.getBoundingClientRect();return [(ev.clientX-r.left-W/2-transform.x)/transform.k,(ev.clientY-r.top-H/2-transform.y)/transform.k];}
+function hit(ev){
+  const [x,y]=world(ev);
+  if(view==="areas")return areaNodes.find(n=>Math.hypot(n.x-x,n.y-y)<n.r+4);
+  let best=null,bd=Infinity;for(const n of fileNodes){const d=Math.hypot(n.x-x,n.y-y);if(d<Math.max(n.r+3,6/transform.k)&&d<bd){bd=d;best=n;}}return best;
+}
+canvas.addEventListener("mousemove",ev=>{
+  const h=hit(ev),tip=$("tip");
+  if(view==="areas"){const id=h?.id??null;if(id!==hoverArea){hoverArea=id;draw();}}
+  if(!h){tip.style.display="none";return;}
+  const r=canvas.getBoundingClientRect();
+  tip.innerHTML=view==="areas"?`${esc(h.id)} · ${h.n} files · ${h.lines.toLocaleString()} lines${DATA.areas[h.id]?`<span class="desc">${esc(firstSentence(DATA.areas[h.id]))}</span>`:""}`:`${esc(files[h.i].p)} · ${inn[h.i].length} importers · blast ${blast[h.i]}<span class="desc">${esc(shortAbout(files[h.i]))}</span>`;
+  tip.style.display="block";tip.style.left=Math.min(ev.clientX-r.left+12,W-tip.offsetWidth-8)+"px";tip.style.top=(ev.clientY-r.top+12)+"px";
+});
+canvas.addEventListener("mouseleave",()=>{$("tip").style.display="none";if(hoverArea){hoverArea=null;draw();}});
+canvas.addEventListener("click",ev=>{
+  const h=hit(ev);
+  if(view==="areas"){if(h){areaFilter=h.id;renderAreas();setView("files");renderSide();}return;}
+  if(h)select(h.i);else{selected=-1;renderSide();draw();}
+});
+
+function setView(v){
+  view=v;$("v-areas").setAttribute("aria-pressed",v==="areas");$("v-files").setAttribute("aria-pressed",v==="files");$("v-3d").setAttribute("aria-pressed",v==="3d");
+  $("g3").style.display=v==="3d"?"block":"none";canvas.style.display=v==="3d"?"none":"block";
+  if(v==="3d"){areaSim?.stop();fileSim?.stop();layout3d();$("hint").textContent="Drag to orbit, scroll to zoom, click a file. Blue = it imports, amber = imports it, coloured = its blast radius, grey = untouched.";return;}
+  transform=d3.zoomIdentity.scale(v==="files"&&!areaFilter?.55:.9);d3.select(canvas).call(zoom.transform,transform);
+  areaSim?.stop();fileSim?.stop();
+  if(v==="areas")layoutAreas();else layoutFiles();
+  $("hint").textContent=v==="areas"?"Click an area to open its files. Arrows point from the importer to what it imports.":"Click a file: blue = it imports, amber = imports it, faded = everything else its change reaches. Orange ring = in an import cycle.";
+  draw();
+}
+$("v-areas").onclick=()=>{areaFilter=null;selected=-1;renderAreas();setView("areas");renderSide();};
+$("v-files").onclick=()=>setView("files");
+$("v-3d").onclick=()=>setView("3d");
+$("types").onchange=e=>{showTypes=e.target.checked;rebuild();metrics();view==="areas"?layoutAreas():view==="3d"?layout3d():layoutFiles();renderSide();};
+
+function select(i){
+  selected=i;
+  if(view==="3d"){if(areaFilter&&!shownFiles().includes(i)){areaFilter=null;renderAreas();layout3d();}paint3d();focus3d(i);renderSide();return;}
+  if(view!=="files"||(areaFilter&&files[i].a!==areaFilter&&!fileNodes.some(n=>n.i===i))){areaFilter=null;renderAreas();setView("files");}
+  const n=fileNodes.find(n=>n.i===i);
+  if(n){transform=d3.zoomIdentity.scale(Math.max(transform.k,1.4)).translate(-n.x,-n.y);d3.select(canvas).transition().duration(450).call(zoom.transform,transform);}
+  renderSide();draw();
+}
+
+/* ---------- right: details ---------- */
+const row=(i,extra="")=>{const about=shortAbout(files[i]);return `<li data-i="${i}" title="${esc(about)}"><span class="dot" style="background:${color.get(files[i].a)}"></span><span class="stack"><span class="file">${esc(files[i].p)}</span>${about?`<span class="desc">${esc(about)}</span>`:""}</span>${extra}</li>`;};
+function rows(list,limit,extra){const id="r"+Math.random().toString(36).slice(2);const shown=list.slice(0,limit);return `<ul class="rows" id="${id}">${shown.map(i=>row(i,extra?extra(i):"")).join("")}</ul>${list.length>limit?`<button class="more" data-for="${id}" data-all='${JSON.stringify(list)}'>Show all ${list.length}</button>`:""}`;}
+function wire(){
+  $("side").querySelectorAll("li[data-i]").forEach(li=>li.onclick=()=>select(+li.dataset.i));
+  $("side").querySelectorAll(".more").forEach(b=>b.onclick=()=>{const ul=$(b.dataset.for);ul.innerHTML=JSON.parse(b.dataset.all).map(i=>row(i)).join("");b.remove();wire();});
+}
+function renderSide(){
+  const side=$("side");
+  if(selected>=0){
+    const f=files[selected],deps=[...reach(selected,inn)].sort((a,b)=>files[a].p.localeCompare(files[b].p));
+    const uses=[...reach(selected,out)];
+    const areasHit=[...new Set(deps.map(i=>files[i].a))];
+    const cyc=inCycle.has(selected)?DATA.cycles[inCycle.get(selected)]:null;
+    side.innerHTML=`<h2 style="margin-top:4px">File</h2><div class="file big">${esc(f.p)}</div>
+      <div class="note"><span class="dot" style="display:inline-block;background:${color.get(f.a)}"></span> ${esc(f.a)} · ${f.l.toLocaleString()} lines</div>
+      ${f.ds==="file"?`<div class="about">${esc(f.d)}</div>`:f.ds==="export"?`<div class="about weak">No description of the file itself. Its first export, <span class="file">${esc(f.of)}</span>: ${esc(f.d)}</div>`:`<div class="about weak">This file does not describe itself.${f.k==="css"?" A stylesheet.":""}</div>`}
+      ${f.x.length?`<h2>Exports (${f.x.length})</h2><div class="note">${f.x.slice(0,30).map(x=>`<span class="tag">${esc(x)}</span>`).join(" ")}${f.x.length>30?" …":""}</div>`:""}
+      <div class="facts"><div class="fact"><b>${out[selected].length}</b><span>imports</span></div><div class="fact"><b>${inn[selected].length}</b><span>imported by</span></div><div class="fact"><b>${deps.length}</b><span>blast radius</span></div></div>
+      <div class="note">A change here can reach <b>${deps.length}</b> files in <b>${areasHit.length}</b> areas${areasHit.length?`: ${areasHit.map(esc).join(", ")}`:""}. It depends on ${uses.length} files in turn.</div>
+      ${cyc?`<h2>Import cycle (${cyc.length} files)</h2><div class="note">These files import each other in a loop.</div>${rows(cyc,12)}`:""}
+      <h2>Imports (${out[selected].length})</h2>${rows([...out[selected]].sort((a,b)=>files[a].p.localeCompare(files[b].p)),40)}
+      <h2>Imported by (${inn[selected].length})</h2>${rows([...inn[selected]].sort((a,b)=>files[a].p.localeCompare(files[b].p)),40)}
+      <h2>Blast radius (${deps.length})</h2>${rows(deps,25)}
+      ${f.pk.length?`<h2>Packages</h2><div class="note">${f.pk.map(p=>`<span class="tag">${esc(p)}</span>`).join(" ")}</div>`:""}`;
+  }else{
+    const scope=files.map((_,i)=>i).filter(i=>!areaFilter||files[i].a===areaFilter);
+    const top=(key,n=10)=>[...scope].sort((a,b)=>key(b)-key(a)).slice(0,n);
+    const em=v=>`<em>${v}</em>`;
+    const cycles=DATA.cycles.filter(c=>!areaFilter||c.some(i=>files[i].a===areaFilter));
+    side.innerHTML=`<h2 style="margin-top:4px">${areaFilter?esc(areaFilter):"Whole codebase"}</h2>
+      ${areaFilter&&DATA.areas[areaFilter]?`<div class="about">${esc(DATA.areas[areaFilter])}</div>`:""}
+      <div class="note">${scope.length} files · ${d3.sum(scope,i=>files[i].l).toLocaleString()} lines${areaFilter?" · the graph shows these and the files they touch":""}</div>
+      <div class="legend"><span><i style="background:#2fa8ff"></i>imports</span><span><i style="background:#f2b84b"></i>imported by</span><span><i style="background:#ff8a3d"></i>cycle</span></div>
+      <div class="note">${scope.filter(i=>files[i].ds==="file").length} of these files describe themselves, ${scope.filter(i=>files[i].ds==="export").length} only through their first export.</div>
+      <h2>Biggest blast radius</h2><div class="note">Files whose change reaches the most others.</div>${rows(top(i=>blast[i]),10,i=>em(blast[i]))}
+      <h2>Most imported</h2>${rows(top(i=>inn[i].length),10,i=>em(inn[i].length))}
+      <h2>Imports the most</h2>${rows(top(i=>out[i].length),10,i=>em(out[i].length))}
+      <h2>Largest files</h2>${rows(top(i=>files[i].l),10,i=>em(files[i].l.toLocaleString()))}
+      <h2>Import cycles (${cycles.length})</h2>${cycles.length?cycles.slice(0,8).map((c,k)=>`<div class="note">Cycle ${k+1} · ${c.length} files</div>${rows(c,6)}`).join(""):`<div class="note">None at runtime.</div>`}
+      <h2>Never imported</h2><div class="note">Entry points, tests or leftovers.</div>${rows(scope.filter(i=>!inn[i].length&&files[i].k!=="css"&&files[i].k!=="json").sort((a,b)=>files[a].p.localeCompare(files[b].p)),12)}
+      <div class="note" style="margin-top:18px;color:var(--faint)">Generated ${new Date(DATA.generated).toLocaleString()} by scripts/code-map.mjs</div>`;
+  }
+  wire();
+}
+
+renderAreas();renderSide();size();setView("areas");
+</script>
+</body>
+</html>

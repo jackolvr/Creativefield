@@ -1,10 +1,12 @@
 /* Enhance video: a few choices instead of one workspace per finishing pack. Each pack that can be a
-   step says so in its manifest (`finishStep`): which row it belongs to (upscale, interpolate), which
-   option of that row it offers, its rank among packs offering the same option and its place in the
-   chain. Nothing here names a pack: the ready catalogue decides what the person sees and what runs. */
+   step says so in its manifest (`role` with tool "upscale", read through roles.ts, which also accepts
+   the older `finishStep`): which row it belongs to (`task`: upscale, interpolate), which option of that
+   row it offers, its rank among packs offering the same option and its place in the chain. Nothing here
+   names a pack: the ready catalogue decides what the person sees and what runs. */
 import type {CapabilityManifestV2,FinishStepRequest} from "./types";
+import {finishRoleOf} from "./roles";
 
-type FinishManifest = Pick<CapabilityManifestV2,"id"|"title"|"finishStep">;
+type FinishManifest = Pick<CapabilityManifestV2,"id"|"title"|"role"|"finishStep">;
 export type FinishOption = {step:string; option:string; label:string; pack:string; fallback:boolean; order:number};
 /** The rows of the tool, in chain order, each with its options; only options a ready pack offers. */
 export type FinishRow = {step:string; order:number; options:FinishOption[]};
@@ -17,21 +19,22 @@ export function finishRows<T extends FinishManifest>(ready:readonly T[]):FinishR
   const best=new Map<string,{manifest:T;rank:number;fallback:boolean}>();
   const byOption=new Map<string,T[]>();
   for(const manifest of ready){
-    const step=manifest.finishStep;if(!step)continue;
-    const key=`${step.step}\u0000${step.option}`;
+    const step=finishRoleOf(manifest);if(!step)continue;
+    const key=`${step.task}\u0000${step.option}`;
     byOption.set(key,[...(byOption.get(key)??[]),manifest]);
   }
+  const rank=(pack:T)=>finishRoleOf(pack)!.rank;
   for(const [key,packs] of byOption){
-    const sorted=[...packs].sort((a,b)=>a.finishStep!.rank-b.finishStep!.rank);
-    best.set(key,{manifest:sorted[0],rank:sorted[0].finishStep!.rank,fallback:sorted[0].finishStep!.rank>1});
+    const sorted=[...packs].sort((a,b)=>rank(a)-rank(b));
+    best.set(key,{manifest:sorted[0],rank:rank(sorted[0]),fallback:rank(sorted[0])>1});
   }
   const rows=new Map<string,FinishRow>();
   for(const {manifest,fallback} of best.values()){
-    const step=manifest.finishStep!;
-    const row=rows.get(step.step)??{step:step.step,order:step.order,options:[]};
-    row.options.push({step:step.step,option:step.option,label:step.label,pack:manifest.id,fallback,order:step.order});
+    const step=finishRoleOf(manifest)!;
+    const row=rows.get(step.task)??{step:step.task,order:step.order,options:[]};
+    row.options.push({step:step.task,option:step.option,label:step.label,pack:manifest.id,fallback,order:step.order});
     row.order=Math.min(row.order,step.order);
-    rows.set(step.step,row);
+    rows.set(step.task,row);
   }
   return [...rows.values()].sort((a,b)=>a.order-b.order);
 }
@@ -47,7 +50,7 @@ export function frameRateOf(value:unknown):number|undefined{
 
 /** The controls one pack runs with as a step, given the frame rate of the clip it receives. */
 export function stepControls(manifest:FinishManifest,sourceFps?:number):Record<string,string|number|boolean>{
-  const step=manifest.finishStep!,controls={...(step.controls??{})};
+  const step=finishRoleOf(manifest)!,controls={...(step.controls??{})};
   if(step.fpsFromSource&&sourceFps){
     const times=Number(controls[step.fpsFromSource.multiplierControl]??1);
     controls[step.fpsFromSource.control]=Math.round(sourceFps*times);
@@ -81,4 +84,4 @@ export function finishDone(packs:readonly string[]|undefined,stepOf:Record<strin
   return rows.map(row=>row==="upscale"?scale&&scale>1?`Upscaled ×${scale}`:"Upscaled":row==="interpolate"?"Smooth":row);
 }
 /** Pack → row for every pack that can be an Enhance step. */
-export const finishStepsOf=(catalogue:readonly FinishManifest[])=>Object.fromEntries(catalogue.flatMap(m=>m.finishStep?[[m.id,m.finishStep.step]]:[]));
+export const finishStepsOf=(catalogue:readonly FinishManifest[])=>Object.fromEntries(catalogue.flatMap(m=>{const role=finishRoleOf(m);return role?[[m.id,role.task]]:[];}));

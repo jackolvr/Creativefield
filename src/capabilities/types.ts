@@ -52,6 +52,19 @@ export type UpscaleChainSnapshot = {
 };
 /** One step of a finishing chain that a later run still has to make: the pack and the controls the
  *  manifest's `finishStep` chose. The server picks the route and the worker of the run before it. */
+/** A workflow's place in the app (manifest `role`, see src/capabilities/roles.ts). `task` is the row inside the tool
+ *  (upscale, interpolate), `option` the choice in that row, `rank` orders workflows offering the same option (1 is
+ *  preferred, later ranks are fallbacks), `order` places the step in a chain (low runs first), `controls` are the
+ *  values this option sets and `label` names the step in the chain line. */
+export type CapabilityRole = {tool:"create"|"change"|"upscale"|"film-studio"; task:string; option:string; rank:number; order:number; label:string;
+  controls?:Record<string,string|number|boolean>;
+  /** The control that takes the output frame rate, worked out as the clip's own rate times `multiplierControl`. */
+  fpsFromSource?:{control:string; multiplierControl:string};
+  /** Offered only when a link or a saved run names this workflow; never picked on its own. */
+  pinnedOnly?:boolean;
+  /** Other options of the same task this workflow also does (one character as well as several). When it is
+   *  ready, worse-ranked workflows for those options are not offered beside it. */
+  covers?:string[]};
 export type FinishStepRequest = { capabilityId: string; controls: Record<string, string | number | boolean>;
   /** Server-derived at admission: the local worker that has this step's pack ready; never accepted from requests. */
   workerId?: string };
@@ -128,7 +141,10 @@ export type CapabilityManifestV2 = {
   /** This workflow is a finish pass on one of its video inputs: the server records the producing run and
    *  the scale in the invocation, so the library can label the result and pair it with its source. */
   upscaleFinish?: {sourceInput:string; scaleControl:string};
-  /** This workflow is one option of the Enhance video tool: `step` is the row (upscale, interpolate),
+  /** Where this workflow sits in the app: one of the four tools (Create, Change, Upscale, Film Studio).
+   *  Read it through roleOf in roles.ts, which also accepts the older `finishStep`. */
+  role?: CapabilityRole;
+  /** Legacy form of an Upscale-tool role; roleOf reads it as one. This workflow is one option of the Enhance video tool: `step` is the row (upscale, interpolate),
    *  `option` the choice in that row, `rank` orders packs that offer the same option (1 is preferred,
    *  later ranks are fallbacks), `order` places the step in the chain (low runs first), `controls`
    *  are the values this option sets, and `label` names the step in the chain line. */

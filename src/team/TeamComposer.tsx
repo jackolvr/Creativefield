@@ -18,6 +18,7 @@ import {Clock,Gauge,Images,RectangleHorizontal,Sparkles,Video,Volume2,WandSparkl
 import {countOptions,frameControls} from "../capabilities/frame-controls";
 import {VIDEO_REFRAME_ID} from "../capabilities/video-reframe";
 import {catalogueTitles} from "./job-queue";
+import {PromptEnhanceTools,usePromptExpander} from "./prompt-enhance";
 import {ToolHero} from "./heroes";
 import {ProductionContent} from "./ProductionWorkspace";
 import type {CapabilityManifestV2,FinishStepRequest} from "../capabilities/types";
@@ -398,6 +399,8 @@ export function TeamComposer({manifest:chosenManifest,catalogue,onCapability,use
     }
   }
   const toast=useToast();
+  /* One shared expander for every video prompt: the same Qwen3.5 9B service Image Studio uses. */
+  const promptEnhancer=usePromptExpander({call,workspaceId:workspace.id,getPrompt:()=>String(draft.controls.prompt??""),setPrompt:text=>changeControl("prompt",text),disabled:locked,notify:toast});
   /* A failed request is said in everyday words; the raw text waits behind Details (rule 36). */
   const failure=error?plainProblem(error,{settings:settingsPlace}):null;
   useEffect(()=>{if(saved)toast(saved);},[saved]);
@@ -405,7 +408,7 @@ export function TeamComposer({manifest:chosenManifest,catalogue,onCapability,use
   function controlField(c:(typeof manifest.controls)[number]){
     const label=c.id==="prompt"?(masked?"3 · Describe the change":motionRoute?"What should happen?":manifest.category==="motion"?"Describe the shot":promptCopy?.label??"Prompt"):c.id==="motion_prompt"?"Motion details":c.id==="negative"?"Negative prompt":c.label;
     if(c.disabledReason)return <Notice inline title={c.label}>{c.disabledReason}</Notice>;
-    if(c.type==="string")return <PromptField textareaRef={c.id==="prompt"&&imagePorts.length?promptArea:undefined} tokens={c.id==="prompt"&&imagePorts.length?mentionLabels:undefined} disabled={locked} label={label} compact={c.id!=="prompt"||motionRoute} placeholder={c.id!=="prompt"?`Enter ${label.toLowerCase()}`:motionRoute?"Describe the character, setting and action":masked?"Say what should be there instead, for example a red mug in place of the blue one":promptCopy?.placeholder??"Describe the shot"} value={String(draft.controls[c.id]??"")} onChange={v=>changeControl(c.id,v)}/>;
+    if(c.type==="string")return <PromptField textareaRef={c.id==="prompt"&&imagePorts.length?promptArea:undefined} tokens={c.id==="prompt"&&imagePorts.length?mentionLabels:undefined} disabled={locked} label={label} compact={c.id!=="prompt"||motionRoute} placeholder={c.id!=="prompt"?`Enter ${label.toLowerCase()}`:motionRoute?"Describe the character, setting and action":masked?"Say what should be there instead, for example a red mug in place of the blue one":promptCopy?.placeholder??"Describe the shot"} value={String(draft.controls[c.id]??"")} onChange={v=>changeControl(c.id,v)} tools={c.id==="prompt"?<PromptEnhanceTools busy={promptEnhancer.busy} run={promptEnhancer.run} disabled={locked}/>:undefined}/>;
     if(c.type==="select")return <Row disabled={locked} label={label} display={String(draft.controls[c.id]??"")} value={draft.controls[c.id] as string|number} options={c.options?.map(v=>({value:v,label:String(v)}))} onChange={v=>changeControl(c.id,v)}/>;
     if(c.type==="boolean")return <Checkbox checked={!!draft.controls[c.id]} onChange={v=>changeControl(c.id,v)}>{label}</Checkbox>;
     return <TextField label={label} type="number" min={c.min} max={c.max} step={c.id==="strength"?"0.05":c.type==="integer"?1:"any"} value={String(draft.controls[c.id]??"")} onChange={v=>changeControl(c.id,v===""?"":Number(v))}/>;

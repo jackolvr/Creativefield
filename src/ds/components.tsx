@@ -1222,6 +1222,21 @@ export function Rule() {
 /* Page layout. Screens are Page > Split/Block > Toolbar. Spacing comes from tokens, never from feature CSS.
    A page whose content fills the work area (a production split, a studio panel) says so with `fill`; the
    WorkspaceBar reads that one declaration instead of keeping its own list of screens (rule 35). */
+/** Content videos start silently while the pointer rests on them. One document listener gives every
+ *  tile the same behaviour; the full viewer and anything marked no-hover-preview are left alone. */
+export function useHoverVideoPreview(){
+  useEffect(()=>{
+    const started=new WeakSet<HTMLVideoElement>();
+    const videoOf=(target:EventTarget|null)=>target instanceof Element?target.closest("video") as HTMLVideoElement|null:null;
+    const skip=(video:HTMLVideoElement)=>!!video.closest(".ds-viewer")||!!video.closest("[data-no-hover-preview]")||video.hasAttribute("data-no-hover-preview");
+    const over=(event:PointerEvent)=>{const video=videoOf(event.target);if(!video||skip(video))return;const related=event.relatedTarget;if(related instanceof Node&&video.contains(related as Node))return;if(video.paused){video.muted=true;started.add(video);void video.play().catch(()=>{});}};
+    const out=(event:PointerEvent)=>{const video=videoOf(event.target);if(!video||skip(video))return;const related=event.relatedTarget;if(related instanceof Node&&video.contains(related as Node))return;if(started.delete(video))video.pause();};
+    document.addEventListener("pointerover",over);
+    document.addEventListener("pointerout",out);
+    return()=>{document.removeEventListener("pointerover",over);document.removeEventListener("pointerout",out);};
+  },[]);
+}
+
 export function Page({ children, narrow, fill, workspace }: { children: ReactNode; /** A centered reading column for list pages on wide screens. */ narrow?: boolean; /** The content fills the work area: no reading-column cap, and the bar above keeps the plain gutter. */ fill?: boolean; /** A canvas workspace uses the available area instead of a reading frame. */ workspace?: boolean }) {
   return <div className={cx("ds-page", narrow && !workspace && !fill && "ds-page--narrow", (fill || workspace) && "ds-page--fill", workspace && "ds-page--workspace")}>{children}</div>;
 }

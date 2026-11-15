@@ -5,7 +5,7 @@
   "title": "Upscale video, quality (SeedVR2)",
   "category": "enhance",
   "description": "Restore and enlarge a clip with SeedVR2 3B: sharper faces, textures and edges that stay steady from frame to frame. Slow: plan minutes per few seconds of 720p.",
-  "finishStep": {"step": "upscale", "option": "best", "rank": 1, "order": 20, "label": "SeedVR2 2x", "controls": {"scale": 2}},
+  "role": {"tool": "upscale", "task": "upscale", "option": "best", "rank": 1, "order": 20, "label": "SeedVR2 2x", "controls": {"scale": 2}},
   "inputs": [
     {
       "id": "source_video",

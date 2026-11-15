@@ -4,6 +4,7 @@
 import type {PoolClient} from "pg";
 import type {CapabilityBundle,CapabilityManifestV2,FinishChainSnapshot,FinishStepRequest} from "../src/capabilities/types";
 import {frameRateOf,stepControls} from "../src/capabilities/finish-steps";
+import {finishRoleOf} from "../src/capabilities/roles";
 import {HttpError} from "./auth";
 
 const SOURCE="source_video";
@@ -28,14 +29,14 @@ function chainScale(steps:Array<Record<string,unknown>>):number|undefined{
 export function routeFinishSteps(rest:FinishStepRequest[],catalogue:CapabilityBundle[],readyOn:(bundle:CapabilityBundle)=>string|undefined):FinishStepRequest[]{
   return rest.map(step=>{
     const requested=catalogue.find(candidate=>candidate.manifest.id===step.capabilityId);
-    const wanted=requested?.manifest.finishStep;
+    const wanted=requested&&finishRoleOf(requested.manifest);
     if(!requested||!wanted||!chainablePack(requested.manifest)||!localRoute(requested))throw new HttpError(422,`${step.capabilityId} cannot be an Enhance step here`);
     const here=readyOn(requested);
     if(here)return {capabilityId:step.capabilityId,controls:step.controls,workerId:here};
-    const fallback=catalogue.filter(candidate=>candidate.manifest.finishStep?.step===wanted.step&&candidate.manifest.finishStep.option===wanted.option&&
-      chainablePack(candidate.manifest)&&!!localRoute(candidate)&&!!readyOn(candidate)).sort((a,b)=>a.manifest.finishStep!.rank-b.manifest.finishStep!.rank)[0];
+    const fallback=catalogue.filter(candidate=>finishRoleOf(candidate.manifest)?.task===wanted.task&&finishRoleOf(candidate.manifest)?.option===wanted.option&&
+      chainablePack(candidate.manifest)&&!!localRoute(candidate)&&!!readyOn(candidate)).sort((a,b)=>finishRoleOf(a.manifest)!.rank-finishRoleOf(b.manifest)!.rank)[0];
     if(!fallback)throw new HttpError(422,`${wanted.label} is not ready on any ComfyUI of this computer. Models shows what it needs.`);
-    return {capabilityId:fallback.manifest.id,controls:{...(fallback.manifest.finishStep!.controls??{})},workerId:readyOn(fallback)};
+    return {capabilityId:fallback.manifest.id,controls:{...(finishRoleOf(fallback.manifest)!.controls??{})},workerId:readyOn(fallback)};
   });
 }
 
@@ -52,10 +53,11 @@ export async function admitFinishChain(client:PoolClient,catalogue:CapabilityBun
 /** Step 1's own controls with any rate worked out from the source clip: its stored facts first, a probe of
  *  the file otherwise. Without a rate the pack's own default stays. */
 export async function firstStepControls(manifest:CapabilityManifestV2,controls:Record<string,unknown>,source:{metadata?:unknown;storage_key?:string}|undefined,probe:(storageKey:string)=>Promise<unknown>):Promise<Record<string,unknown>>{
-  if(!manifest.finishStep?.fpsFromSource)return controls;
+  const fpsFromSource=finishRoleOf(manifest)?.fpsFromSource;
+  if(!fpsFromSource)return controls;
   let fps=frameRateOf((source?.metadata as {frameRate?:unknown}|undefined)?.frameRate);
   if(!fps&&source?.storage_key)fps=frameRateOf(await probe(source.storage_key).catch(()=>undefined));
-  const {control,multiplierControl}=manifest.finishStep.fpsFromSource;
+  const {control,multiplierControl}=fpsFromSource;
   return fps?{...controls,[control]:Math.round(fps*Number(controls[multiplierControl]??1))}:controls;
 }
 
@@ -76,7 +78,7 @@ export function nextFinishStep(runId:string,chain:FinishChainSnapshot|undefined,
   const [next,...rest]=chain?.rest??[];
   if(!chain||!next)return undefined;
   const bundle=catalogue.find(candidate=>candidate.manifest.id===next.capabilityId),route=bundle&&localRoute(bundle);
-  if(!bundle?.manifest.finishStep||!route||!chainablePack(bundle.manifest))return undefined;
+  if(!bundle||!finishRoleOf(bundle.manifest)||!route||!chainablePack(bundle.manifest))return undefined;
   const fps=frameRateOf((output.metadata as {frameRate?:unknown}|undefined)?.frameRate);
   const rootRunId=chain.rootRunId??runId,scale=chainScale([{scale:chain.scale??1},next.controls]);
   const {scale:_previous,...carried}=chain;

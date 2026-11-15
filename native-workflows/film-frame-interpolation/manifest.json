@@ -5,7 +5,7 @@
   "title": "FILM frame interpolation",
   "category": "enhance",
   "description": "Local FILM frame interpolation for short project clips. The graph reads a project video, interpolates frames with a multiplier, and writes a new muted video at the chosen output frame rate. The output frame rate must be set to source FPS x multiplier to keep the duration unchanged.",
-  "finishStep": {"step": "interpolate", "option": "2x", "rank": 1, "order": 10, "label": "FILM 2x", "controls": {"multiplier": 2}, "fpsFromSource": {"control": "output_fps", "multiplierControl": "multiplier"}},
+  "role": {"tool": "upscale", "task": "interpolate", "option": "2x", "rank": 1, "order": 10, "label": "FILM 2x", "controls": {"multiplier": 2}, "fpsFromSource": {"control": "output_fps", "multiplierControl": "multiplier"}},
   "inputs": [
     {
       "id": "source_video",

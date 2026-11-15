@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "title": "OpenJutsu multiple characters",
   "category": "replacement",
+  "role": {"tool": "change", "task": "replace-person", "option": "several", "rank": 3, "order": 10, "label": "MiniMax H3 · Multiple characters"},
   "description": "Replace one to four people in a video using H3 and character references.",
   "inputs": [
     {
