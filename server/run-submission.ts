@@ -8,7 +8,7 @@ import type {CapabilityBundle,Invocation,WorkerInventory} from "../src/capabilit
 import {compileLocal} from "../src/capabilities/compile";
 import {capabilityReadiness} from "../src/capabilities/readiness";
 import {HttpError} from "./auth";
-import {admitFinishChain,firstStepControls} from "./finish-chain";
+import {admitFinishChain,finishesAfter,firstStepControls,routeFinishSteps} from "./finish-chain";
 import {probeVideo} from "./media";
 import {hashToken,newId} from "./crypto";
 import {fileSha256,inspectMaskVideo,withMaskInspection} from "./masked-media";
@@ -218,8 +218,10 @@ export async function prepareInvocation(client:PoolClient,catalogue:CapabilityBu
   if(body.finish){/* A later step runs on this run's worker when its pack is ready there, otherwise on another fresh local worker that has it. */
     const local=(await client.query<{id:string;inventory:WorkerInventory|null;checked_at:Date|null}>("SELECT id,inventory,checked_at FROM workers WHERE workspace_id=$1 AND enabled=true AND kind<>'cloud' ORDER BY (id=$2) DESC,id",[workspaceId,worker.id])).rows;
     const fresh=(row:typeof local[number])=>({...(row.inventory??{online:false,nodes:[],models:[],credentials:[]}),online:!!row.inventory?.online&&!!row.checked_at&&Date.now()-new Date(row.checked_at).getTime()<=5*60*1000});
-    invocation.finishChain=await admitFinishChain(client,catalogue,workspaceId,bundle.manifest,resolved.inputIds,controls,body.finish,
-      step=>local.find(row=>step.manifest.routes.some(route=>route.execution==="local_comfy"&&capabilityReadiness(step.manifest,route.id,fresh(row)).state==="ready"))?.id);delete invocation.upscaleChain;}
+    const readyOn=(step:CapabilityBundle)=>local.find(row=>step.manifest.routes.some(route=>route.execution==="local_comfy"&&capabilityReadiness(step.manifest,route.id,fresh(row)).state==="ready"))?.id;
+    /* Create Video: a run that makes a video keeps every step for after its result publishes. */
+    if(finishesAfter(bundle.manifest))invocation.finishAfter=routeFinishSteps(body.finish,catalogue,readyOn);
+    else{invocation.finishChain=await admitFinishChain(client,catalogue,workspaceId,bundle.manifest,resolved.inputIds,controls,body.finish,readyOn);delete invocation.upscaleChain;}}
   if(sceneReference)invocation.sceneReference=sceneReference;
   if(bundle.manifest.outputContract){
     const contract=bundle.manifest.outputContract,tracking=body.tracking!,source=assets[contract.sourceInput];

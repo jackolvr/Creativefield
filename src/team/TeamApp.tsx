@@ -870,7 +870,8 @@ function TeamWorkspace({user,workspace,workspaces,onWorkspace,call,authorized,of
     onGenerate={draft=>void generateImage(draft)} onCancel={canCreate?cancelImageRun:undefined}
     canCancelRun={run=>workspace.role==="admin"||run.created_by===user.id} onRetake={canCreate&&!imageIntentKey&&!imageBusy?retakeImage:undefined}/>:null,manifest?"fill":undefined));
   const renderComposer=inProject(project=>page(composerManifest?<TeamComposer key={`${project.id}:${composerManifest.id}`} manifest={composerManifest}
-      workflowIds={effects?[effects.id]:motion?.workflowIds} onCapability={chooseWorkflow} {...composerProps} project={project} workers={makeReal?localWorkers:runWorkers}/>:null,composerManifest?"fill":undefined));
+      workflowIds={effects?[effects.id]:motion?.workflowIds} onCapability={chooseWorkflow} {...composerProps} project={project} workers={makeReal?localWorkers:runWorkers}
+      finishPacks={makeReal||effects||motion?undefined:navigation.finishPacks}/>:null,composerManifest?"fill":undefined));
   const screenRenderers={
     openjutsu:inProject(project=>openJutsuScreen&&<section className="cf-team__content ds-page ds-page--fill">{renderOpenJutsu(project,openJutsuScreen.selection)}</section>),
     "chatgpt-unavailable":inProject(()=><section className="cf-team__content"><Page narrow><EmptyState title="ChatGPT edits images here" text="This feature uses a different renderer. Choose this computer to continue here, or open the image editor for ChatGPT." action={<Button variant="secondary" onClick={()=>setRunOn("local")}>Use this computer</Button>}/></Page></section>),

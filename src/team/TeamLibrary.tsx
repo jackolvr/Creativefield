@@ -23,7 +23,15 @@ import {producerRunId,useRecreate,useRecreateById} from "./recreate";
 import {capabilityHasControl,isTrackedMaskWorkflow} from "../capabilities/lookup";
 import {sharpenRunBody} from "./sharpen-run";
 import {libraryFeedAssets,useStoryboardFeed,type FeedScope} from "./media-feed";
-import {assetCardFacts,assetFormat,assetSize,feedModeLabel,generationOf,runCardFacts,type FeedCard} from "./feed-facts";
+import {assetCardFacts,assetFormat,assetSize,feedModeLabel,finishWords,generationOf,runCardFacts,type FeedCard} from "./feed-facts";
+
+/** The extra facts a file carries when it is the result of an upscale pass. */
+function upscaleFactsFor(asset:Asset|undefined,titles:Record<string,string>):Array<{label:string;value:ReactNode}>{
+  const generation=generationOf(asset),up=generation?.upscale??generation?.upscaled;
+  if(!up?.scale)return [];
+  const model=up.capabilityId?jobQueueTitle(up.capabilityId,titles):undefined;
+  return [{label:"Upscale",value:`×${up.scale}${up.seconds?` · ${up.seconds} s`:""}`},...(model?[{label:"Upscale model",value:model}]:[])];
+}
 
 /** A click handler for a file whose run is known; nothing for a file that was uploaded. */
 const withRun=(runId:string|undefined,go:(runId:string)=>Promise<void>)=>runId?()=>void go(runId):undefined;
@@ -124,10 +132,11 @@ function ProjectRuns({workspace,project,call,canEdit,authorized,version,user,tit
     return {id:out.id,project_id:run.project_id,name:"",media_type:"video",content_type:out.content_type??"",bytes:String(out.bytes??0),created_at:run.created_at,parent_id:null,metadata:{...(out.metadata??{}),width:out.width,height:out.height,durationSeconds:out.durationSeconds}} as Asset;
   };
   const compareUrl=(card:FeedCard)=>card.compare?{src:assetUrl(workspace.id,card.compare.assetId),name:card.compare.name}:undefined;
-  const runCard=(run:Run)=>runCardFacts(run,outputAsset(run,detail[run.id]??run),titles);
-  const assetCard=(asset:Asset)=>assetCardFacts(asset,titles);
+  const runCard=(run:Run)=>runCardFacts(run,outputAsset(run,detail[run.id]??run),titles,feed?.finishSteps);
+  const assetCard=(asset:Asset)=>assetCardFacts(asset,titles,feed?.finishSteps);
   /** The quiet top-left tag on every library file: its mode when the workflow is known, else its kind. */
-  const assetTag=(asset:Asset)=>{const generation=generationOf(asset),mode=generation?.capabilityId?feed?.modes?.[generation.capabilityId]:undefined;if(mode)return mode;return asset.media_type==="video"?"Video":asset.media_type==="image"?"Image":asset.media_type==="audio"?"Audio":asset.media_type==="model3d"?"3D":"Media";};
+  /* A finished file is labelled by the workflow that made the clip, with what the Enhance steps did beside it. */
+  const assetTag=(asset:Asset)=>{const generation=generationOf(asset),maker=generation?.upscale?.parentCapabilityId??generation?.capabilityId,mode=maker?feed?.modes?.[maker]:undefined,base=mode??(asset.media_type==="video"?"Video":asset.media_type==="image"?"Image":asset.media_type==="audio"?"Audio":asset.media_type==="model3d"?"3D":"Media");return feedModeLabel(base,finishWords(generation?.upscale,feed?.finishSteps,false))!;};
   /** File names in plain words: "ReCaVSR int8", "FlashDecoder", "Prompt encoder". */
   const modelLabel=(name:string)=>{
     const base=name.split("/").pop()?.replace(/\.(safetensors|ckpt|gguf|pth|bin)$/i,"")??name;
@@ -136,21 +145,27 @@ function ProjectRuns({workspace,project,call,canEdit,authorized,version,user,tit
   };
   const richFacts=(run:Run,full:Run,output:Asset|undefined)=>{
     const facts:Array<{label:string;value:ReactNode}>=[...factsOf(run,full)];
-    const up=generationOf(output)?.upscale,controls=full.invocation?.controls??{};
+    const generation=generationOf(output)??generationOf(full.outputs?.[0] as Asset|undefined);
+    const up=generation?.upscale,linked=generation?.upscaled,controls=full.invocation?.controls??{};
     if(up?.scale){
       const source=assetById.get(up.sourceAssetId??"");
       const sourceShape=up.sourceWidth&&up.sourceHeight?`${up.sourceWidth}×${up.sourceHeight}`:assetSize(source);
       facts.push({label:"Source",value:[jobQueueTitle(up.parentCapabilityId??"",titles),sourceShape,up.sourceDurationSeconds?`${up.sourceDurationSeconds.toFixed(1)} s`:undefined,up.parentSeconds?`rendered in ${up.parentSeconds} s`:undefined].filter(Boolean).join(" · ")});
       facts.push({label:"Upscale",value:`×${up.scale}${up.seconds?` · ${up.seconds} s`:""}`});
+      if(up.capabilityId)facts.push({label:"Upscale model",value:jobQueueTitle(up.capabilityId,titles)});
       const settings=[controls.scale!==undefined?`×${controls.scale}`:undefined,controls.decoder,controls.color_fix&&controls.color_fix!=="none"?controls.color_fix:undefined,controls.kernels].filter(Boolean).join(" · ");
       if(settings)facts.push({label:"Settings",value:settings});
+    }else if(linked?.scale){
+      /* The result tile shows the original; its upscaled sibling is the media in Compare. */
+      facts.push({label:"Upscale",value:`×${linked.scale}${linked.seconds?` · ${linked.seconds} s`:""} available`});
+      if(linked.capabilityId)facts.push({label:"Upscale model",value:jobQueueTitle(linked.capabilityId,titles)});
     }
     const format=assetFormat(output);
     if(format)facts.push({label:"Output",value:format});
     if(full.models?.length)facts.push({label:"Models",value:full.models.map(modelLabel).join(", ")});
     return facts;
   };
-  const runItem=(run:Run,inFeed=false,viewerCompare?:{src:string;name:string})=>{const state=runLabel[run.state]??run.state,full=detail[run.id]??run;const output=outputAsset(run,full);const upscaled=!!generationOf(output)?.upscale;const baseMode=feed?.modes?.[run.capability_id];return <div className="cf-run-item" role={inFeed?undefined:"listitem"} id={inFeed?undefined:`cf-run-${run.id}`} key={run.id} onDragStart={event=>{if(run.output_content_type)event.dataTransfer.setData(ASSET_TYPE_DRAG,run.output_content_type);}}><HistoryItem media={run.output_ids[0]?run.output_content_type==="model/gltf-binary"?<Suspense fallback={<Meta>Loading model preview</Meta>}><ModelPreview url={assetUrl(workspace.id,run.output_ids[0])} standalone/></Suspense>:run.output_content_type?.startsWith("image/")?<img draggable={false} loading="lazy" src={assetUrl(workspace.id,run.output_ids[0])} alt={`${jobQueueTitle(run.capability_id,titles)} result`}/>:run.output_content_type?.startsWith("audio/")?<audio controls preload="metadata" src={assetUrl(workspace.id,run.output_ids[0])}/>:run.output_content_type?.startsWith("video/")?<video draggable={false} controls={!inFeed} preload="metadata" src={`${assetUrl(workspace.id,run.output_ids[0])}#t=0.1`}/>:<Meta>Output is available in Downloads</Meta>:<RunDevelop workspaceId={workspace.id} run={run} cancelling={canceling===run.id||run.state==="cancel_requested"} onCancel={canEdit&&activeRun(run.state)&&(workspace.role==="admin"||run.created_by===user.id)?()=>void cancel(run):undefined}/>} model={jobQueueTitle(run.capability_id,titles)} shape={run.output_aspect??(inFeed&&!run.output_ids[0]?runShape(full.invocation?.controls):undefined)} mode={feedModeLabel(baseMode,upscaled)} viewerCompare={viewerCompare} prompt={String(full.invocation?.controls?.prompt??"")} onOpenDetails={()=>void loadDetail(run)} onDelete={canEdit?async()=>{await call(workspacePath(workspace.id,`runs/${encodeURIComponent(run.id)}`),"DELETE");setRuns(old=>old.filter(item=>item.id!==run.id));}:undefined} meta={<StatusText tone={runTone(run.state)}>{state}</StatusText>} date={new Date(run.created_at).toLocaleString()} actions={<>
+  const runItem=(run:Run,inFeed=false,viewerCompare?:{src:string;name:string})=>{const state=runLabel[run.state]??run.state,full=detail[run.id]??run;const output=outputAsset(run,full);const runGeneration=generationOf(output)??generationOf(full.outputs?.[0] as Asset|undefined);const sibling=runGeneration?.upscaled,finished=finishWords(runGeneration?.upscale??(sibling?{scale:sibling.scale,capabilityId:sibling.capabilityId}:undefined),feed?.finishSteps,false);const baseMode=feed?.modes?.[run.capability_id];return <div className="cf-run-item" role={inFeed?undefined:"listitem"} id={inFeed?undefined:`cf-run-${run.id}`} key={run.id} onDragStart={event=>{if(run.output_content_type)event.dataTransfer.setData(ASSET_TYPE_DRAG,run.output_content_type);}}><HistoryItem media={run.output_ids[0]?run.output_content_type==="model/gltf-binary"?<Suspense fallback={<Meta>Loading model preview</Meta>}><ModelPreview url={assetUrl(workspace.id,run.output_ids[0])} standalone/></Suspense>:run.output_content_type?.startsWith("image/")?<img draggable={false} loading="lazy" src={assetUrl(workspace.id,run.output_ids[0])} alt={`${jobQueueTitle(run.capability_id,titles)} result`}/>:run.output_content_type?.startsWith("audio/")?<audio controls preload="metadata" src={assetUrl(workspace.id,run.output_ids[0])}/>:run.output_content_type?.startsWith("video/")?<video draggable={false} controls={!inFeed} preload="metadata" src={`${assetUrl(workspace.id,run.output_ids[0])}#t=0.1`}/>:<Meta>Output is available in Downloads</Meta>:<RunDevelop workspaceId={workspace.id} run={run} cancelling={canceling===run.id||run.state==="cancel_requested"} onCancel={canEdit&&activeRun(run.state)&&(workspace.role==="admin"||run.created_by===user.id)?()=>void cancel(run):undefined}/>} model={jobQueueTitle(run.capability_id,titles)} shape={run.output_aspect??(inFeed&&!run.output_ids[0]?runShape(full.invocation?.controls):undefined)} mode={feedModeLabel(baseMode,finished)} viewerCompare={viewerCompare} prompt={String(full.invocation?.controls?.prompt??"")} onOpenDetails={()=>void loadDetail(run)} onDelete={canEdit?async()=>{await call(workspacePath(workspace.id,`runs/${encodeURIComponent(run.id)}`),"DELETE");setRuns(old=>old.filter(item=>item.id!==run.id));}:undefined} meta={<StatusText tone={runTone(run.state)}>{state}</StatusText>} date={new Date(run.created_at).toLocaleString()} actions={<>
       {canEdit&&activeRun(run.state)&&run.state!=="cancel_requested"&&(workspace.role==="admin"||run.created_by===user.id)&&<Button variant="secondary" aria-label={`Cancel run ${run.id}`} disabled={canceling===run.id} onClick={()=>void cancel(run)}>Cancel</Button>}
       {canEdit&&needsReconciliation(run)&&(workspace.role==="admin"||run.created_by===user.id)&&<Button variant="secondary" aria-label={`Resolve run ${run.id}`} disabled={canceling===run.id} onClick={()=>void resolveUnknown(run)}>Resolve</Button>}
       {canEdit&&needsReconciliation(run)&&(workspace.role==="admin"||run.created_by===user.id)&&<Button variant="ghost" aria-label={`Mark run ${run.id} failed`} disabled={canceling===run.id} onClick={()=>setManual(run)}>Mark not accepted</Button>}
@@ -245,7 +260,7 @@ export function TeamLibrary({screen,workspace,project,call,canEdit,authorized,ve
     <ExampleTiles kind="video" videoSources={LIBRARY_EXAMPLE_VIDEOS} leading={!assets.length&&!pending&&canEdit?<UploadSlot tile label="Add media" hint="Image, video or audio" accept="image/png,image/jpeg,image/webp,video/mp4,video/webm,audio/wav,audio/mpeg" kinds={["image","video","audio"]} onFile={pick}/>:undefined} leadingCount={!assets.length&&!pending&&canEdit?1:0}/>
     <ExampleTiles kind="image" imageSources={SQUAREHEAD_EXAMPLE_IMAGES}/>
   </>}</Block>
-  <MediaViewer open={!!viewing&&!viewing.content_type.startsWith("audio/")} src={viewing?assetUrl(workspace.id,viewing.id):""} name={viewing?.name??""} mediaType={viewing?.content_type.startsWith("video/")?"video":"image"} onClose={()=>setViewing(null)} onNavigate={direction=>setViewing(current=>adjacentItem(viewableAssets,asset=>asset.id===current?.id,direction)??current)} onRecreate={canEdit?withRun(viewingRunId,recreateById):undefined} info={viewingRun?<MediaViewerInfo model={jobQueueTitle(viewingRun.capability_id,titles??{})} inputs={visibleRunInputs(workspace.id,viewingRun)} prompt={String(viewingRun.invocation?.controls?.prompt??"")} facts={runFacts(viewingRun,{model:jobQueueTitle(viewingRun.capability_id,titles??{})}).slice(1)} date={new Date(viewingRun.created_at).toLocaleString()}/>:undefined}/>
+  <MediaViewer open={!!viewing&&!viewing.content_type.startsWith("audio/")} src={viewing?assetUrl(workspace.id,viewing.id):""} name={viewing?.name??""} mediaType={viewing?.content_type.startsWith("video/")?"video":"image"} onClose={()=>setViewing(null)} onNavigate={direction=>setViewing(current=>adjacentItem(viewableAssets,asset=>asset.id===current?.id,direction)??current)} onRecreate={canEdit?withRun(viewingRunId,recreateById):undefined} info={viewingRun?<MediaViewerInfo model={jobQueueTitle(viewingRun.capability_id,titles??{})} inputs={visibleRunInputs(workspace.id,viewingRun)} prompt={String(viewingRun.invocation?.controls?.prompt??"")} facts={[...(viewing?upscaleFactsFor(viewing,titles??{}):[]),...runFacts(viewingRun,{model:jobQueueTitle(viewingRun.capability_id,titles??{})}).slice(1)]} date={new Date(viewingRun.created_at).toLocaleString()}/>:undefined}/>
   <Dialog open={!!viewing&&viewing.content_type.startsWith("audio/")} title={viewing?.name??"Audio preview"} onClose={()=>setViewing(null)} footer={<Button variant="ghost" onClick={()=>setViewing(null)}>Close</Button>}>{viewing&&<Suspense fallback={null}><SpeechAudioPlayer key={viewing.id} workspace={workspace.id} asset={viewing}/></Suspense>}</Dialog>
   <ConfirmDialog open={!!deleting} title="Delete this file?" text={deleting?`${deleting.name} will be removed from your library. If a project still needs the file, its stored copy and references will be retained.`:""} confirmLabel={deleteError?"Retry deletion":"Delete file"} error={deleteError} busy={!!deletingId} onCancel={()=>setDeleting(null)} onConfirm={()=>void removeAsset()}/>
   </>;

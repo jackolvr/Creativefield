@@ -2,6 +2,7 @@ import {useEffect,useRef,useState} from "react";
 import type {CapabilityManifestV2} from "../capabilities/types";
 import {isEffectClips} from "../capabilities/tasks";
 import {VIDEO_REFRAME_ID} from "../capabilities/video-reframe";
+import {finishStepsOf} from "../capabilities/finish-steps";
 import {workspacePath,type Asset,type Call} from "./api";
 import type {BoardRender} from "./storyboard-state";
 
@@ -37,13 +38,13 @@ export function feedKind(manifest:Pick<CapabilityManifestV2,"outputs">|undefined
   return type==="video"?"video":type==="image"?"image":undefined;
 }
 /** The shared feed of one kind: every workflow that makes it, and the workflows of the app that is open. */
-export type FeedScope={kind:FeedKind;capabilities:string[];current?:string[];/** The mode each workflow makes things in, shown on its tiles. */modes?:Record<string,string>;/** Workflows whose outputs are preparation steps, never feed members. */hiddenCapabilities?:Set<string>};
+export type FeedScope={kind:FeedKind;capabilities:string[];current?:string[];/** The mode each workflow makes things in, shown on its tiles. */modes?:Record<string,string>;/** Workflows whose outputs are preparation steps, never feed members. */hiddenCapabilities?:Set<string>;/** Enhance step packs → their row, for the card's finishing words. */finishSteps?:Record<string,string>};
 const MODES:Record<string,string>={t2v:"Text to video",i2v:"Image to video",flf2v:"First and last frame",video:"Video",motion:"Motion transfer",replacement:"Replace",enhance:"Enhanced",finishing:"Restyle",image:"Image",canvas:"Image edit",identity:"Character","3d":"3D",audio:"Audio"};
 /** The mode a workflow makes things in, in plain words. */
 export const feedMode=(manifest:Pick<CapabilityManifestV2,"id"|"category">)=>manifest.id===VIDEO_REFRAME_ID?"Reframe":isEffectClips(manifest.id)?"Effects":MODES[manifest.category]??manifest.category;
 export function feedScope(catalogue:CapabilityManifestV2[],kind:FeedKind,current?:string[]):FeedScope{
   const members=catalogue.filter(m=>feedKind(m)===kind&&!m.feedHidden);
-  return {kind,capabilities:members.map(m=>m.id),current,modes:Object.fromEntries(members.map(m=>[m.id,feedMode(m)])),hiddenCapabilities:new Set(catalogue.filter(m=>m.feedHidden).map(m=>m.id))};
+  return {kind,capabilities:members.map(m=>m.id),current,modes:Object.fromEntries(members.map(m=>[m.id,feedMode(m)])),hiddenCapabilities:new Set(catalogue.filter(m=>m.feedHidden).map(m=>m.id)),finishSteps:finishStepsOf(catalogue)};
 }
 
 export type FeedFilm={id:string;assetId:string|null;state:string;createdAt:string;board:string};

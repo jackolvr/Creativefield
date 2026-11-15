@@ -54,7 +54,7 @@ import {isCloudRoute,prepareCloudInvocation,CLOUD_WORKER_REASON} from "./cloud-r
 import {productionDirectRegistry,type DirectRegistry} from "./providers/registry";
 import {loadWorkspaceCatalogue} from "./workflow-imports";
 import {hasOwnVideoFinish,planUpscale,upscaleBundle,upscaleControls} from "./chain-upscale";
-import {nextFinishStep} from "./finish-chain";
+import {firstFinishAfter,nextFinishStep} from "./finish-chain";
 import {attachGenerationFacts} from "./resources";
 import {maskedEditReadiness} from "./media-tools";
 import {assertImageExtension,probeImage,type ImageMetadata} from "./image-media";
@@ -70,7 +70,7 @@ import {PngValidationError} from "./image-artifacts-validation";
 import {alignedImageInputSnapshotSchema} from "./image-input-admission";
 import {isObjectSwapWorkflow,isOpenJutsuSingleSwap} from "../src/capabilities/tasks";
 import {hyperflowStillReference} from "./hyperflow-reference";
-import {usesH3AudioPolish,withPolishedH3Audio,withUpscaledH3Audio} from "./h3-audio-polish";
+import {usesH3AudioPolish,withPolishedH3Audio,withSourceAudio,withUpscaledH3Audio} from "./h3-audio-polish";
 import {VIDEO_REFRAME_ID} from "../src/capabilities/video-reframe";
 import {withReframedAudio} from "./video-reframe";
 import {VideoExtensionMediaError} from "./video-extension-media";
@@ -1003,7 +1003,7 @@ export class ExecutionService {
   private async chainUpscale(run:any,manifest:CapabilityBundle["manifest"],output:{id:string;metadata?:unknown}):Promise<void>{
     try{
       // An upscaled result is not upscaled again, and an Enhance chain is the finish the person chose.
-      if(run.invocation?.upscaleChain || run.invocation?.finishChain || hasOwnVideoFinish(manifest.id))return;
+      if(run.invocation?.upscaleChain || run.invocation?.finishChain || run.invocation?.finishAfter?.length || hasOwnVideoFinish(manifest.id))return;
       const facts=output.metadata as {width?:unknown;height?:unknown}|undefined;
       const plan=planUpscale({width:Number(facts?.width??0),height:Number(facts?.height??0)});
       if(!plan)return;
@@ -1020,7 +1020,9 @@ export class ExecutionService {
    *  queued ends the chain; the clip made so far stays the result. */
   private async continueFinishChain(run:any,output:{id:string;metadata?:unknown}):Promise<void>{
     try{
-      const next=nextFinishStep(run.id,run.invocation?.finishChain,output,this.catalogue);
+      /* A made video (Create Video) starts its chain here; an Enhance step hands on to the next one. */
+      const next=run.invocation?.finishAfter?.length?firstFinishAfter(run.id,run.invocation.finishAfter,output,this.catalogue)
+        :nextFinishStep(run.id,run.invocation?.finishChain,output,this.catalogue);
       if(!next)return;
       await this.queueChainedStep({...run,worker_id:next.workerId??run.worker_id},`finish:${next.snapshot.rootRunId}:${next.snapshot.step}`,next.bundle,next.routeId,{source_video:output.id},next.controls,invocation=>{
         delete invocation.upscaleChain;
@@ -1090,6 +1092,7 @@ export class ExecutionService {
     try {
       const chained=run.invocation?.upscaleChain as {parentRunId?:unknown;sourceAssetId?:unknown}|undefined;
       let upscaleAudio: {file:string;metadata:{defaultTrack:0;originalTrack:1}}|undefined;
+      let chainAudio: unknown;
       if(declaredMedia==="video"&&typeof chained?.sourceAssetId==="string"){
         const source=(await this.pool.query(
           "SELECT a.storage_key,a.metadata->'audioPolish' AS audio_polish FROM run_inputs i JOIN assets a ON a.id=i.asset_id AND a.workspace_id=i.workspace_id WHERE i.workspace_id=$1 AND i.run_id=$2 AND i.role='source_video' AND a.id=$3",
@@ -1135,6 +1138,23 @@ export class ExecutionService {
             await this.store.remove(run.workspace_id,workerKey).catch(()=>{});
             filename=await this.store.file(run.workspace_id,last.key);
           }
+          /* The last step of an Enhance chain takes the sound of the clip the chain started from; without it the clip stays as made. */
+          const finishing=run.invocation?.finishChain as Invocation["finishChain"];
+          if(!upscaleAudio&&finishing&&!finishing.rest.length){
+            const source=(await this.pool.query("SELECT storage_key,metadata FROM assets WHERE workspace_id=$1 AND id=$2",[run.workspace_id,finishing.sourceAssetId])).rows[0];
+            if(source?.storage_key&&source.metadata?.hasAudio){
+              const sound=await withSourceAudio(await this.store.file(run.workspace_id,source.storage_key),filename,output=>this.store.put(run.workspace_id,createReadStream(output))).catch(error=>{
+                console.warn(`[runs] ${String(run.id)}: the chain's sound was not carried over: ${(error as Error).message}`);return undefined;
+              });
+              if(sound){
+                const workerKey=last.key;
+                Object.assign(last,sound,{name:last.name.replace(/\.[^.]+$/,".mp4")});
+                await this.store.remove(run.workspace_id,workerKey).catch(()=>{});
+                filename=await this.store.file(run.workspace_id,last.key);
+                chainAudio=source.metadata.audioPolish;
+              }
+            }
+          }
           if(manifest.id===VIDEO_REFRAME_ID||flashFrames){
             const source=(await this.pool.query("SELECT a.storage_key FROM run_inputs i JOIN assets a ON a.id=i.asset_id AND a.workspace_id=i.workspace_id WHERE i.workspace_id=$1 AND i.run_id=$2 AND i.role='source_video'",[run.workspace_id,run.id])).rows[0];
             if(!source?.storage_key)throw new PermanentArtifactError("The original clip is unavailable.");
@@ -1156,6 +1176,7 @@ export class ExecutionService {
           try{video=await probeVideo(filename);}catch(error){if(error instanceof MediaProbeUnavailableError)throw error;throw new PermanentArtifactError("Worker output is not a valid encoded video");}
           last.metadata=video;
           if(upscaleAudio)last.metadata={...last.metadata,audioPolish:upscaleAudio.metadata};
+          else if(chainAudio)last.metadata={...last.metadata,audioPolish:chainAudio};
           if(openJutsuTracking)last.metadata={...last.metadata,openJutsuTracking};
           last.contentType=video.container?.includes("webm")?"video/webm":"video/mp4";
           if(run.invocation.mediaSnapshot)last.metadata={...last.metadata,...await verifyMaskedOutput(filename,run.invocation.mediaSnapshot)};

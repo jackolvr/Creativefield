@@ -1,8 +1,9 @@
 import type {Asset, Run} from "./api";
 import {jobQueueTitle} from "./job-queue";
+import {finishDone} from "../capabilities/finish-steps";
 
-export type FeedUpscale={parentRunId?:string;sourceAssetId?:string;scale?:number;seconds?:number;parentCapabilityId?:string;parentSeconds?:number;sourceWidth?:number;sourceHeight?:number;sourceDurationSeconds?:number;sourceContentType?:string};
-export type FeedUpscaled={assetId:string;scale:number;seconds?:number};
+export type FeedUpscale={parentRunId?:string;sourceAssetId?:string;capabilityId?:string;scale?:number;/** Every chain step up to this file, in run order. */steps?:string[];seconds?:number;parentCapabilityId?:string;parentSeconds?:number;sourceWidth?:number;sourceHeight?:number;sourceDurationSeconds?:number;sourceContentType?:string};
+export type FeedUpscaled={assetId:string;scale?:number;seconds?:number;capabilityId?:string};
 export type FeedGeneration={capabilityId?:string;seconds?:number;upscale?:FeedUpscale;upscaled?:FeedUpscaled};
 
 export type FeedCard={
@@ -28,30 +29,34 @@ export const generationOf=(asset:Asset|undefined):FeedGeneration|undefined=>{
   return value&&typeof value==="object"?value:undefined;
 };
 
-/** The quiet card label: the app's mode, with the upscale step beside it ("Image to video · Upscaled"). */
-export const feedModeLabel=(mode:string|undefined,upscaled:boolean):string|undefined=>mode?upscaled?`${mode} · Upscaled`:mode:upscaled?"Upscaled":undefined;
+/** What the Enhance steps did to this file ("Upscaled ×2 · Smooth"); "Enhanced" when the steps are not known. */
+export const finishWords=(upscale:FeedUpscale|undefined,stepOf?:Record<string,string>,withScale=true)=>{if(!upscale)return [];const words=finishDone(upscale.steps??(upscale.capabilityId?[upscale.capabilityId]:undefined),stepOf,withScale?upscale.scale:undefined);return words.length?words:[upscale.scale&&upscale.scale>1&&withScale?`Upscaled ×${upscale.scale}`:upscale.scale&&upscale.scale>1?"Upscaled":"Enhanced"];};
+/** The quiet card label: the app's mode, with the finishing steps beside it ("Image to video · Smooth"). */
+export const feedModeLabel=(mode:string|undefined,done:readonly string[]):string|undefined=>[mode,...done].filter(Boolean).join(" · ")||undefined;
 
 /** The library card for a stored file: which workflow, how long, the upscale pass and the new format. */
-export function assetCardFacts(asset:Asset,titles:Record<string,string>):FeedCard{
+export function assetCardFacts(asset:Asset,titles:Record<string,string>,stepOf?:Record<string,string>):FeedCard{
   const generation=generationOf(asset),upscale=generation?.upscale,upscaled=generation?.upscaled;
   const file=[shape(asset),duration(asset),container(asset)].filter(Boolean).join(" · ");
-  if(upscale?.scale){
-    const lines=[jobQueueTitle(upscale.parentCapabilityId??generation?.capabilityId??"",titles),time(upscale.parentSeconds??generation?.seconds),`Upscale ×${upscale.scale} · ${time(upscale.seconds)}`,file].filter(Boolean) as string[];
-    return {hint:`Upscaled ×${upscale.scale}`,lines,compare:upscale.sourceAssetId?{assetId:upscale.sourceAssetId,name:"Original"}:undefined};
+  if(upscale?.sourceAssetId){
+    const done=finishWords(upscale,stepOf),packs=(upscale.steps??(upscale.capabilityId?[upscale.capabilityId]:[])).map(id=>jobQueueTitle(id,titles)).filter(Boolean);
+    const lines=[jobQueueTitle(upscale.parentCapabilityId??generation?.capabilityId??"",titles),time(upscale.parentSeconds??generation?.seconds),[...done,...packs].join(" · ")+` · ${time(upscale.seconds)}`,file].filter(Boolean) as string[];
+    return {hint:done.join(" · "),lines,compare:{assetId:upscale.sourceAssetId,name:"Original"}};
   }
   const lines=[jobQueueTitle(generation?.capabilityId??"",titles),time(generation?.seconds),file].filter(Boolean) as string[];
-  if(upscaled?.scale)lines.push(`Upscaled ×${upscaled.scale} available`);
-  return {hint:upscaled?.scale?"Original":undefined,lines,compare:upscaled?.assetId?{assetId:upscaled.assetId,name:`Upscaled ×${upscaled.scale}`}:undefined};
+  const better=upscaled?.assetId?finishWords({scale:upscaled.scale,capabilityId:upscaled.capabilityId},stepOf).join(" · "):"";
+  if(upscaled?.assetId){const t=upscaled.capabilityId?jobQueueTitle(upscaled.capabilityId,titles):"";lines.push(`${better} available${t?` · ${t}`:""}${upscaled.seconds?` · ${time(upscaled.seconds)}`:""}`);}
+  return {hint:upscaled?.assetId?"Original":undefined,lines,compare:upscaled?.assetId?{assetId:upscaled.assetId,name:better}:undefined};
 }
 
 /** A queued result's card: the workflow and run time, plus the upscale facts its output file carries. */
-export function runCardFacts(run:Run,output:Asset|undefined,titles:Record<string,string>):FeedCard{
+export function runCardFacts(run:Run,output:Asset|undefined,titles:Record<string,string>,stepOf?:Record<string,string>):FeedCard{
   const generation=generationOf(output),upscale=generation?.upscale;
   const wall=Math.max(0,Math.round((Date.parse(run.updated_at)-Date.parse(run.created_at))/1000));
   const file=[shape(output),duration(output),container(output)].filter(Boolean).join(" · ");
-  if(upscale?.scale){
-    const lines=[jobQueueTitle(run.capability_id,titles),`${wall} s`,`Upscale ×${upscale.scale} · ${time(upscale.seconds)}`,file].filter(Boolean);
-    return {hint:`Upscaled ×${upscale.scale}`,lines,compare:upscale.sourceAssetId?{assetId:upscale.sourceAssetId,name:"Original"}:undefined};
+  if(upscale?.sourceAssetId){
+    const done=finishWords(upscale,stepOf),lines=[jobQueueTitle(run.capability_id,titles),`${wall} s`,`${done.join(" · ")} · ${time(upscale.seconds)}`,file].filter(Boolean);
+    return {hint:done.join(" · "),lines,compare:{assetId:upscale.sourceAssetId,name:"Original"}};
   }
   return {hint:generation?.upscaled?"Original":undefined,lines:[jobQueueTitle(run.capability_id,titles),`${wall} s`,file].filter(Boolean)};
 }

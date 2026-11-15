@@ -38,7 +38,7 @@ export function TransformVideo({manifests,statuses,user,workspace,project,worker
     setKind(next);
   }
   // The intents are a compact choice, not a wall of model cards; the workflow itself is automatic.
-  const cards:{id:ChangeChoice;label:string}[]=[...(replace?[{id:"person" as const,label:TOOL_LABELS.person}]:[]),...TRANSFORM_MODES.filter(mode=>candidates[mode.id].length>0).map(m=>({id:m.id,label:TOOL_LABELS[m.id]})),...(reframe?[{id:"reframe" as const,label:TOOL_LABELS.reframe}]:[])];
+  const cards:{id:ChangeChoice;label:string}[]=[...(replace?[{id:"person" as const,label:TOOL_LABELS.person}]:[]),...TRANSFORM_MODES.filter(mode=>mode.id==="swap"?!!swapThing||candidates.swap.length>0:candidates[mode.id].length>0).map(m=>({id:m.id,label:TOOL_LABELS[m.id]})),...(reframe?[{id:"reframe" as const,label:TOOL_LABELS.reframe}]:[])];
   /* A retired tool (for example Wan motion transfer after the HyperFlow switch) keeps old links alive by
      moving them to the first tool this computer can actually run. */
   const availableKey=cards.map(card=>card.id).join(",");

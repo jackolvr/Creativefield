@@ -592,7 +592,7 @@ export function resolveScreen(input:NavigationInput){
     return {kind:section as NamedScreen};
   }
 
-  return {requestedHash,redirect,section,screen:screen(),tabs:tabs(),menu,topBarHref,runTargets,runPicker,overlay,catalogueManifests,makeRealEntry,imageWorkflow,videoTabs,projectTabs,
+  return {requestedHash,redirect,section,screen:screen(),tabs:tabs(),menu,topBarHref,runTargets,runPicker,overlay,catalogueManifests,makeRealEntry,imageWorkflow,videoTabs,projectTabs,finishPacks,
     imageTabs:section==="image"&&imageWorkspace?.active?{...imageWorkspace,active:imageWorkspace.active}:null,
     access:input.access??"ready"};
 }

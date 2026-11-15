@@ -59,6 +59,15 @@ export async function firstStepControls(manifest:CapabilityManifestV2,controls:R
   return fps?{...controls,[control]:Math.round(fps*Number(controls[multiplierControl]??1))}:controls;
 }
 
+/** A run that makes a video (Create Video) can name finishing steps for its result; a clip-in pack starts a chain instead. */
+export const finishesAfter=(manifest:CapabilityManifestV2)=>!chainablePack(manifest)&&manifest.outputs.some(port=>port.type==="video");
+
+/** The first step after a made video: the chain starts on that video and finishes the run's own card. */
+export function firstFinishAfter(runId:string,steps:FinishStepRequest[]|undefined,output:{id:string;metadata?:unknown},catalogue:CapabilityBundle[]):NextFinishStep|undefined{
+  if(!steps?.length)return undefined;
+  return nextFinishStep(runId,{validationVersion:1,contract:"finish_chain_v1",sourceAssetId:output.id,parentRunId:runId,rootRunId:runId,step:0,of:steps.length,rest:steps},output,catalogue);
+}
+
 export type NextFinishStep={bundle:CapabilityBundle;routeId:string;workerId?:string;controls:Record<string,string|number|boolean>;snapshot:FinishChainSnapshot};
 
 /** The step that follows a published step, or nothing at the chain's end. A pack that went missing

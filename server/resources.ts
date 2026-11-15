@@ -26,7 +26,7 @@ const text = z.string().max(20000);
 const assetColumns = "id,project_id,name,media_type,content_type,sha256,bytes,parent_id,created_at,metadata";
 const ACTIVE_RUN = ["pending","submitting","submission_unknown","queued","running","cancel_requested"];
 
-type GenerationRow={asset_id:string;run_id:string;capability_id:string;capability_version:string;route_id:string|null;worker_id:string|null;created_at:Date;updated_at:Date;upscale_chain:{parentRunId?:string;sourceAssetId?:string;scale?:number}|null};
+type GenerationRow={asset_id:string;run_id:string;capability_id:string;capability_version:string;route_id:string|null;worker_id:string|null;created_at:Date;updated_at:Date;upscale_chain:{parentRunId?:string;sourceAssetId?:string;rootRunId?:string;scale?:number}|null};
 /**
  * How a stored file was made, for the library cards: the producing run, how long it took, and for the
  * chained HD finish the parent run and the source file. Videos did not carry this in their metadata
@@ -47,6 +47,14 @@ export async function attachGenerationFacts(pool:Pool,workspaceId:string,items:A
     const parentRows=(await pool.query<{id:string;capability_id:string;created_at:Date;updated_at:Date}>("SELECT id,capability_id,created_at,updated_at FROM runs WHERE workspace_id=$1 AND id=ANY($2::uuid[])",[workspaceId,parentIds])).rows;
     for(const parent of parentRows)parents.set(parent.id,parent);
   }
+  /* Every step of a chain that ran before this file (Smooth, then Upscale), so the card can name them all,
+     not only the last one. A chain's steps share its root run: the first step's own run, or the Create Video
+     run that ordered them. */
+  const roots=new Map<string,string>();
+  for(const row of latest.values())if(row.upscale_chain?.sourceAssetId)roots.set(row.run_id,row.upscale_chain.rootRunId??row.run_id);
+  const stepRuns=roots.size?(await pool.query<{id:string;root:string;capability_id:string;created_at:Date}>(`SELECT id,COALESCE(invocation->'finishChain'->>'rootRunId',id::text) AS root,capability_id,created_at FROM runs
+    WHERE workspace_id=$1 AND state='succeeded' AND (invocation ? 'finishChain' OR invocation ? 'upscaleChain') AND (id::text=ANY($2::text[]) OR invocation->'finishChain'->>'rootRunId'=ANY($2::text[])) ORDER BY created_at`,[workspaceId,[...new Set(roots.values())]])).rows:[];
+  const stepsBefore=(runId:string,until:Date)=>{const root=roots.get(runId);return root?stepRuns.filter(step=>step.root===root&&step.created_at<=until).map(step=>step.capability_id):undefined;};
   type FileRow={id:string;created_at:Date;content_type:string|null;width:string|null;height:string|null;duration_seconds:string|null};
   const files=new Map<string,FileRow>();
   const fileIds=[...new Set([...ids,...sourceIds])];
@@ -62,17 +70,17 @@ export async function attachGenerationFacts(pool:Pool,workspaceId:string,items:A
     const previous=(row.metadata?.generation&&typeof row.metadata.generation==="object"?row.metadata.generation:{}) as Record<string,unknown>;
     const chain=generation.upscale_chain,parent=chain?.parentRunId?parents.get(chain.parentRunId):undefined,sourceFile=chain?.sourceAssetId?files.get(chain.sourceAssetId):undefined;
     const published=row.created_at??generation.updated_at;
-    row.metadata={...row.metadata,generation:{...previous,runId:generation.run_id,capabilityId:generation.capability_id,capabilityVersion:generation.capability_version,routeId:generation.route_id,workerId:generation.worker_id,startedAt:generation.created_at.toISOString(),finishedAt:published.toISOString(),seconds:seconds(generation.created_at,published),...(chain?.sourceAssetId?{upscale:{parentRunId:chain.parentRunId,sourceAssetId:chain.sourceAssetId,scale:Number(chain.scale??1),seconds:seconds(generation.created_at,published),parentCapabilityId:parent?.capability_id,parentSeconds:parent?seconds(parent.created_at,sourceFile?.created_at??parent.updated_at):undefined,...fileMeta(chain.sourceAssetId)}}:{})}};
+    row.metadata={...row.metadata,generation:{...previous,runId:generation.run_id,capabilityId:generation.capability_id,capabilityVersion:generation.capability_version,routeId:generation.route_id,workerId:generation.worker_id,startedAt:generation.created_at.toISOString(),finishedAt:published.toISOString(),seconds:seconds(generation.created_at,published),...(chain?.sourceAssetId?{upscale:{parentRunId:chain.parentRunId,sourceAssetId:chain.sourceAssetId,capabilityId:generation.capability_id,...(chain.scale?{scale:Number(chain.scale)}:{}),steps:stepsBefore(generation.run_id,generation.created_at),seconds:seconds(generation.created_at,published),parentCapabilityId:parent?.capability_id,parentSeconds:parent?seconds(parent.created_at,sourceFile?.created_at??parent.updated_at):undefined,...fileMeta(chain.sourceAssetId)}}:{})}};
   }
   /* The other side of the link: the upscaled file that was made from this one, so the card can offer a comparison. */
-  const upscaled=(await pool.query<{source_asset_id:string;upscaled_asset_id:string;scale:string;created_at:Date;updated_at:Date}>(`SELECT COALESCE(r.invocation->'upscaleChain',r.invocation->'finishChain')->>'sourceAssetId' AS source_asset_id,r.output_ids->>0 AS upscaled_asset_id,COALESCE(r.invocation->'upscaleChain',r.invocation->'finishChain')->>'scale' AS scale,r.created_at,r.updated_at
+  const upscaled=(await pool.query<{source_asset_id:string;upscaled_asset_id:string;scale:string;capability_id:string;created_at:Date;updated_at:Date}>(`SELECT COALESCE(r.invocation->'upscaleChain',r.invocation->'finishChain')->>'sourceAssetId' AS source_asset_id,r.output_ids->>0 AS upscaled_asset_id,r.capability_id,COALESCE(r.invocation->'upscaleChain',r.invocation->'finishChain')->>'scale' AS scale,r.created_at,r.updated_at
     FROM runs r WHERE r.workspace_id=$1 AND r.state='succeeded' AND COALESCE(r.invocation->'upscaleChain',r.invocation->'finishChain')->>'sourceAssetId'=ANY($2::text[]) ORDER BY r.created_at DESC`,[workspaceId,ids])).rows;
   const bySource=new Map<string,(typeof upscaled)[number]>();
   for(const row of upscaled)if(!bySource.has(row.source_asset_id))bySource.set(row.source_asset_id,row);
   for(const row of items){
     const link=bySource.get(row.id),generation=(row.metadata?.generation??{}) as Record<string,unknown>;
     if(!link||!link.upscaled_asset_id)continue;
-    row.metadata={...row.metadata,generation:{...generation,upscaled:{assetId:link.upscaled_asset_id,scale:Number(link.scale??1),seconds:seconds(link.created_at,link.updated_at)}}};
+    row.metadata={...row.metadata,generation:{...generation,upscaled:{assetId:link.upscaled_asset_id,...(link.scale?{scale:Number(link.scale)}:{}),seconds:seconds(link.created_at,link.updated_at),capabilityId:link.capability_id}}};
   }
 }
 

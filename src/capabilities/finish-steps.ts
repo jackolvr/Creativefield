@@ -72,3 +72,13 @@ export function planFinish<T extends FinishManifest>(choice:FinishChoice,ready:r
 
 /** The chain line under the options, e.g. "FILM 2x, then ReCaVSR 2x". */
 export const chainLine=(steps:readonly Pick<PlannedStep,"label">[])=>steps.map(step=>step.label).join(", then ");
+
+/** What a finished chain did, in plain words for a result card ("Upscaled ×2", "Smooth"), one per row
+ *  in run order. `stepOf` maps a pack to its row; a pack it does not know is left out. */
+export function finishDone(packs:readonly string[]|undefined,stepOf:Record<string,string>|undefined,scale?:number):string[]{
+  const rows=[...new Set((packs??[]).map(pack=>stepOf?.[pack]).filter((row):row is string=>!!row))];
+  if(!rows.length)return scale&&scale>1?[`Upscaled ×${scale}`]:[];
+  return rows.map(row=>row==="upscale"?scale&&scale>1?`Upscaled ×${scale}`:"Upscaled":row==="interpolate"?"Smooth":row);
+}
+/** Pack → row for every pack that can be an Enhance step. */
+export const finishStepsOf=(catalogue:readonly FinishManifest[])=>Object.fromEntries(catalogue.flatMap(m=>m.finishStep?[[m.id,m.finishStep.step]]:[]));

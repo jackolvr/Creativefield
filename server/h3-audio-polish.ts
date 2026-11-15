@@ -53,6 +53,39 @@ export async function withPolishedH3Audio<T>(source: string, use: (file: string)
   }
 }
 
+/** How far a finished chain may drift from its source clip's length and still take its sound (FILM keeps the length). */
+export const CHAIN_AUDIO_TOLERANCE_SECONDS = 0.3;
+
+/** The end of an Enhance chain: every sound track of the clip the chain started from, on the chain's
+ *  final picture. Frame interpolation drops the sound and an upscaler may keep one track only. */
+export async function withSourceAudio<T>(source: string, video: string, use: (file: string) => Promise<T>): Promise<T> {
+  const [sourceMedia, videoMedia] = await Promise.all([probeMedia(source, "video"), probeMedia(video, "video")]);
+  const tracks = streamsOfType(sourceMedia, "audio").length;
+  if (!tracks) throw new AudioProcessingError("The source clip has no sound to carry over.");
+  if (Math.abs(sourceMedia.durationSeconds - videoMedia.durationSeconds) > CHAIN_AUDIO_TOLERANCE_SECONDS) {
+    throw new AudioProcessingError("The finished clip is no longer as long as its source, so its sound would drift.");
+  }
+  const folder = await mkdtemp(join(dirname(video), ".chain-audio-"));
+  const output = join(folder, "finished.mp4");
+  try {
+    await runTool(ffmpegPath(), [
+      "-hide_banner", "-loglevel", "error", "-nostdin",
+      "-protocol_whitelist", "file,pipe", "-format_whitelist", "mov,matroska,webm", "-i", video,
+      "-protocol_whitelist", "file,pipe", "-format_whitelist", "mov,matroska,webm", "-i", source,
+      "-map", "0:v:0", "-map", "1:a", "-c", "copy",
+      "-t", videoMedia.durationSeconds.toFixed(6), "-map_metadata:s:a", "1:s:a", "-movflags", "+faststart", output,
+    ], undefined, 60000);
+    const result = await probeMedia(output, "video");
+    if (streamsOfType(result, "video").length !== 1 || streamsOfType(result, "audio").length !== tracks) {
+      throw new AudioProcessingError("The finished clip did not take the source clip's sound tracks.");
+    }
+    return await use(output);
+  } finally {
+    await unlink(output).catch(() => {});
+    await rmdir(folder).catch(() => {});
+  }
+}
+
 /** An upscaler can return only one audio stream. Use the finished source's full soundtrack. */
 export async function withUpscaledH3Audio<T>(source: string, upscaled: string, use: (file: string) => Promise<T>): Promise<T> {
   const [sourceMedia, sourceTiming, upscaledTiming] = await Promise.all([

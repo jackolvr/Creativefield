@@ -240,6 +240,9 @@ export type Invocation = {
   upscaleChain?: UpscaleChainSnapshot;
   /** Server-derived from the request's `finish` steps: this run is one step of an Enhance chain. */
   finishChain?: FinishChainSnapshot;
+  /** Server-derived from the request's `finish` steps on a run that makes a video (Create Video): once
+   *  that video publishes, these steps run on it as an Enhance chain. */
+  finishAfter?: FinishStepRequest[];
   /** Server-derived reusable Element bindings; never accepted from public requests. */
   elementInputSnapshots?: Record<string, ElementAssetSnapshotV1>;
   outputAssetId?: string;
