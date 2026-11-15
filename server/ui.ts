@@ -4,7 +4,7 @@ import type {FastifyInstance} from "fastify";
 import fastifyStatic from "@fastify/static";
 
 /** Only trusted build assets are public. Disk media stays behind workspace authorization. */
-export async function serveTeamUi(app:FastifyInstance,root:string,nodeEditorOrigin?:string) {
+export async function serveTeamUi(app:FastifyInstance,root:string,nodeEditorOrigin?:string,frameOrigins:string[]=[]) {
   const readHtml=async()=>{
     const source=await readFile(path.join(root,"index.html"),"utf8");
     if(!/<head(?:\s[^>]*)?>/i.test(source))throw new Error("Team UI build has no head element");
@@ -35,7 +35,7 @@ export async function serveTeamUi(app:FastifyInstance,root:string,nodeEditorOrig
   app.get("/favicon.ico",favicon);
   app.get("/",async(_request,reply)=>{
     reply.header("Cache-Control","no-store")
-      .header("Content-Security-Policy",`default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self'; frame-src ${[nodeEditorOrigin,"https://www.youtube.com"].filter(Boolean).join(" ")||"'none'"}; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`);
+      .header("Content-Security-Policy",`default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self'; frame-src ${["'self'",nodeEditorOrigin,...frameOrigins,"https://www.youtube.com"].filter(Boolean).join(" ")||"'none'"}; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`);
     let html:string;
     try{html=await readHtml();}
     catch{return reply.code(503).header("Retry-After","1").type("text/plain; charset=utf-8").send("ComfyField is rebuilding. Keep existing editor tabs open. Try loading this page again shortly.");}

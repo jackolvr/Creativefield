@@ -1,4 +1,4 @@
-/* Film Studio: LAYOUT ONLY (flex, grid, gap, sizing, overflow, position).
+﻿/* Film Studio: LAYOUT ONLY (flex, grid, gap, sizing, overflow, position).
    Colours, fonts, borders, radii and shadows belong to src/ds/. */
 
 .fs-shell { height:100%; min-height:0; display:flex; flex-direction:column; gap:var(--gap-stack); }
@@ -71,3 +71,17 @@
 /* Geometry module: one recorded measurement per shot, stacked like the shot list (layout only). */
 .fs-geometry { flex:1; min-height:0; min-width:0; overflow:auto; display:flex; flex-direction:column; gap:var(--gap-block); }
 .fs-geometry__list { display:flex; flex-direction:column; gap:var(--gap-inline); min-width:0; }
+
+/* Hosted H3 Editor: the editor fills the Film Studio work area. */
+.cf-h3studio { display: flex; flex: 1; flex-direction: column; width: 100%; max-width: none; height: calc(100dvh - 150px); min-height: 520px; }
+.cf-h3studio__frame { flex: 1; width: 100%; min-height: 0; border: 0; display: block; }
+
+
+/* Analysis bridge inside the hosted H3 Editor. */
+.cf-h3analysis { display: flex; flex-direction: column; gap: var(--gap-inline); max-height: 46vh; overflow: auto; }
+
+
+/* Measured blocking inside the H3 analysis dialog. */
+.cf-h3blocking__stage { height: 240px; overflow: hidden; }
+.cf-h3blocking__stage canvas { display: block; width: 100%; height: 100%; }
+

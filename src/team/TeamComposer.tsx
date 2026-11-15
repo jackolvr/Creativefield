@@ -370,8 +370,10 @@ export function TeamComposer({manifest:chosenManifest,catalogue,onCapability,use
   const [promptProblem,setPromptProblem]=useState<{text:string;settings:boolean}>();
   /* How long a run with these settings usually takes here, from earlier finished runs. */
   const [usual,setUsual]=useState<string>();
-  const usualKey=`${manifest.id}|${String(draft.controls.quality??"")}|${String(draft.controls.length??"")}`;
-  useEffect(()=>{let current=true;setUsual(undefined);const q=new URLSearchParams({capabilityId:manifest.id,...(draft.controls.quality!=null?{quality:String(draft.controls.quality)}:{}),...(draft.controls.length!=null?{length:String(draft.controls.length)}:{})});
+  /* The steps on the made clip (Upscale, Smooth) add their own time; a video is at least a minute per second here. */
+  const afterIds=afterSteps.map(step=>step.capabilityId).join(",");
+  const usualKey=`${manifest.id}|${String(draft.controls.quality??"")}|${String(draft.controls.length??"")}|${afterIds}`;
+  useEffect(()=>{let current=true;setUsual(undefined);const q=new URLSearchParams({capabilityId:manifest.id,...(draft.controls.quality!=null?{quality:String(draft.controls.quality)}:{}),...(draft.controls.length!=null?{length:String(draft.controls.length)}:{}),...(afterIds?{after:afterIds}:{})});
     void call<{estimate:{seconds:number}|null}>(workspacePath(workspace.id,`run-estimate?${q}`)).then(b=>{if(current&&b.estimate)setUsual(aboutTime(b.estimate.seconds));},()=>{});return()=>{current=false;};},[usualKey,workspace.id]);
   async function writeVideoPrompt(){
     const start=draft.inputs.start_image,end=draft.inputs.end_image,original=String(draft.controls.prompt??"");

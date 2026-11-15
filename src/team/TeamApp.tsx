@@ -3,11 +3,14 @@ import {annotationStorageKey,imageAnnotationsSchema} from "../image/annotations"
 import {enableBrowserLibrary} from "./browser-library";
 import {StartScreen} from "./StartScreen";
 import {GettingStarted} from "./GettingStarted";
+import {OnboardingGate} from "./OnboardingGate";
 import {Welcome} from "./Welcome";
 import {CloudSignIn,reopenCloudSignIn,type CloudAccountFacts} from "./CloudSignIn";
 import {CloudRunDialog,CLOUD_PLAN_LINE,type CloudRunDialogKind} from "./CloudRunDialog";
 import {Guide} from "./Guide";
 import {SwapThingPanel} from "./SwapThingPanel";
+import {SwapPanel} from "./SwapPanel";
+import {swapPicks} from "./swap-flow";
 import {ReferenceReplacePanel} from "./ReferenceReplacePanel";
 import {changeChoiceFromHash,type StartTask} from "./start-tasks";
 import {ProjectCreateDialog,TeamProjects,useProjectSelection} from "./TeamProjects";
@@ -23,7 +26,7 @@ import {TeamLibrary,TeamRuns} from "./TeamLibrary";
 import {runFacts} from "./run-facts";
 import {feedMode,feedScope,feedVisibleRuns} from "./media-feed";
 import {groupMenu} from "./menu-groups";
-import {toolEntriesFrom,toolExtras,toolHref,toolMenus,toolOfHash,TOOLS,type Tool} from "./tool-menus";
+import {imageEntryTool,mediumMenus} from "./tool-menus";
 import {JobQueueIndicator} from "./JobQueueIndicator";
 import {TeamChoice} from "./TeamChoice";
 import {CapabilityCatalogue} from "../ui/CapabilityCatalogue";
@@ -62,7 +65,8 @@ import {catalogueTitles} from "./job-queue";
 import {ToolHero,type HeroKind} from "./heroes";
 import {ProductionContent} from "./ProductionWorkspace";
 import logo from "../assets/creativefield-logo-trim.png";
-import {RecreateMediaProvider,RecreateProvider,type RecreateMedia,type RecreateRun} from "./recreate";
+import {RecreateMediaProvider,RecreateProvider,RescueProvider,type RecreateMedia,type RecreateRun,type RescueRun} from "./recreate";
+import {isOutOfMemory,smallerRun} from "../capabilities/memory-rescue";
 
 /** A worker's kind comes from the server; the shared Worker type does not carry it yet. */
 export {videoWorkflowMode} from "./workflow-navigation";
@@ -152,6 +156,17 @@ function TeamWorkspace({user,workspace,workspaces,onWorkspace,call,authorized,of
   /* On a phone the top bar keeps only the job queue and the account; Run on and the rest move into its More sheet. */
   const phone=usePhone();
   const [routeHash,setRouteHash]=useState(location.hash);
+  const [onboardingOpen,setOnboardingOpen]=useState(false);
+  /* First run: only an admin of this workspace sees the setup gate; the server keeps completion and the
+     chosen models folder, so another browser on the same workspace does not ask again. */
+  useEffect(()=>{
+    if(!authorized||workspace.role!=="admin")return;
+    let current=true;
+    void call<{completed:boolean;dismissed:boolean}>(workspacePath(workspace.id,"onboarding"),"GET")
+      .then(state=>{if(current&&!state.completed&&!state.dismissed)setOnboardingOpen(true);})
+      .catch(()=>{});
+    return()=>{current=false;};
+  },[authorized,workspace.id,workspace.role,call]);
   const [route,setRoute]=useState(sectionFromHash(location.hash)),[modelsRequested,setModelsRequested]=useState(false),[creatingProject,setCreatingProject]=useState(false);
   const {projects,projectsLoading,project,projectId,setProjectId,replaceProjects,addProject}=useProjectSelection(user.id,workspace.id);
   const [workers,setWorkers]=useState<Worker[]>([]),[catalogue,setCatalogue]=useState<Catalogue>([]),[capabilityId,setCapabilityId]=useState("");
@@ -410,6 +425,8 @@ function TeamWorkspace({user,workspace,workspaces,onWorkspace,call,authorized,of
   const keyframes=resolved?.kind==="keyframes"?resolved:undefined;
   const editArea=resolved?.kind==="edit-area"?resolved:undefined;
   const transform=resolved?.kind==="transform"?resolved:undefined;
+  /* Swap a thing, one panel (DOC-2191): the workflows each way can use here, chosen by the manifests. */
+  const swapPicksHere=swapPicks(catalogue,id=>routeFor(id));
   const makeReal=resolved?.kind==="make-real"?resolved.manifest:undefined;
   const effects=resolved?.kind==="effects"?resolved.manifest:undefined;
   const trim=resolved?.kind==="trim"?resolved:undefined;
@@ -610,16 +627,14 @@ function TeamWorkspace({user,workspace,workspaces,onWorkspace,call,authorized,of
     })),
     footer:menuFooter(workspaceMenu.imageFooter),
   };
-  /* Both menus show their entries as rows by function (FunctionMenu); "All workflows" opens the full list. */
-  videoMenu.groups=groupMenu("video",[...videoMenu.features,...videoMenu.models]);
+  /* The 3D menu shows its entries as rows by function (FunctionMenu); "All workflows" opens the full list. */
   if(threeDMenu)threeDMenu.groups=groupMenu("3d",[...threeDMenu.features,...threeDMenu.models]);
-  imageMenu.groups=groupMenu("image",[...imageMenu.features,...imageMenu.models]);
-  /* The top bar shows the four tools (tool-menus.ts): every entry above sits under its tool; Film Studio adds its own
-     tasks and Create the audio studio. */
-  const menusByTool=toolMenus(toolEntriesFrom({video:videoMenu,image:imageMenu,threeD:threeDMenu},id=>catalogue.find(m=>m.id===id),
-    toolExtras(workspaceMenu.tools,workspaceMenu.video.map(entry=>entry.href),workspaceMenu.sections.includes("audio"),id=>{const task=workspaceMenu.tools.find(item=>item.id===id);if(task)openStartTask(task);})));
-  const TOOL_ICONS:Record<Tool,ReactNode>={create:<Sparkles size={20}/>,change:<Palette size={20}/>,upscale:<Maximize2 size={20}/>,"film-studio":<Clapperboard size={20}/>};
-  const currentTool=toolOfHash(navigation.requestedHash??location.hash);
+  /* Video and Image stay in the top bar; inside each, the rows are the tools (tool-menus.ts mediumMenus): tasks in
+     plain words, plus the screens that are no task. Model workflows are chosen inside the tools, or via All workflows. */
+  const byMedium=mediumMenus(workspaceMenu.tools,id=>{const task=workspaceMenu.tools.find(item=>item.id===id);if(task)openStartTask(task);},[
+    ...videoMenu.features.filter(entry=>entry.id==="trim"||entry.id==="openjutsu").map(entry=>({...entry,medium:"video" as const,row:"change"})),
+    ...imageMenu.features.filter(entry=>entry.id!=="create-image"&&entry.id!=="fotofield").map(entry=>({...entry,medium:"image" as const,row:imageEntryTool(entry.id)}))]);
+  videoMenu.groups=byMedium.video;imageMenu.groups=byMedium.image;
   const section=sectionOf(route);
   const workspaceBar=!catalogueScreen&&!nodes&&section!=="3d";
   useDensity();
@@ -682,9 +697,11 @@ function TeamWorkspace({user,workspace,workspaces,onWorkspace,call,authorized,of
       const id=await mediaAssetId(media);presetTool(target,{[port]:id});setCapabilityId(target.id);if(mode)setVideoMode(mode);location.hash=hash;
     };
     const animate=animateTarget?send(animateTarget.pack,animateTarget.inputId,videoWorkflowHash(animateTarget.pack.id),"create"):undefined;
+    const swapFirst=canCreate&&image&&objectSwapLocal&&statuses[objectSwapLocal.id]?.state==="ready"&&objectSwapLocal.inputs.some(port=>port.id==="first_frame")?objectSwapLocal:undefined;
     const toMotion=motionReady?send(motionTarget!,image?"start_image":"motion_video","video/transform/motion","transform"):undefined;
     const openIn:NonNullable<MediaToolSet["openIn"]>=[
       ...(animate&&animateTarget?[{id:"animate",label:"Make a video",note:"Image to video",icon:<Video size={16}/>,run:animate}]:[]),
+      ...(swapFirst?[{id:"swap-first-frame",label:"Swap a thing",note:"As the first frame",icon:<Sparkles size={16}/>,run:send(swapFirst,"first_frame","video/transform/swap","transform")}]:[]),
       ...(toMotion?[{id:"motion",label:"Motion transfer",note:image?"As the character picture":"As the driving video",icon:<Footprints size={16}/>,run:toMotion}]:[]),
       ...(!image&&restyleReady?[{id:"restyle",label:"Restyle",note:"As the source clip",icon:<Palette size={16}/>,run:send(restyleTarget!,"source_video","video/transform/restyle","transform")}]:[]),
     ];
@@ -739,8 +756,9 @@ function TeamWorkspace({user,workspace,workspaces,onWorkspace,call,authorized,of
     /* Every other workflow has its own setup page, which reads the same draft. */
     return {hash:`workflow/${m.id}`,mode:undefined};
   };
-  const recreate:RecreateRun=run=>{
-    if(!canCreate||!project||run.state!=="succeeded"||!run.invocation)return undefined;
+  /* Reopens a run's tool with its inputs and settings; `override` changes settings (the smaller out-of-memory retry may reopen a failed run). */
+  const reopen=(run:Run,override?:Record<string,string|number|boolean>)=>{
+    if(!canCreate||!project||run.state!=="succeeded"&&!override||!run.invocation)return undefined;
     const target=catalogue.find(m=>m.id===run.capability_id);
     /* Opening the setup needs no ready worker: the tool itself says what is missing before it can run. */
     if(!target)return undefined;
@@ -749,7 +767,7 @@ function TeamWorkspace({user,workspace,workspaces,onWorkspace,call,authorized,of
       const recorded=Object.fromEntries(Object.entries(run.invocation!.controls).filter(([id,value])=>["string","number","boolean"].includes(typeof value)&&target.controls.some(control=>control.id===id))) as ImageDraft["controls"];
       const inputs=Object.fromEntries(Object.entries(run.invocation!.inputs).filter(([id,value])=>typeof value==="string"&&value&&target.inputs.some(port=>port.id===id)));
       const presetId=(run.invocation as typeof run.invocation & {presetId?:string}).presetId;
-      const draft={...defaultImageDraft(target),controls:{...defaultImageDraft(target).controls,...recorded},inputs,...(presetId&&target.presets.some(preset=>preset.id===presetId)?{presetId}:{})};
+      const draft={...defaultImageDraft(target),controls:{...defaultImageDraft(target).controls,...recorded,...override},inputs,...(presetId&&target.presets.some(preset=>preset.id===presetId)?{presetId}:{})};
       imageDraftMemory.current[target.id]=draft;setImageDraft(draft);setImageIntentKey("");setCapabilityId(target.id);location.hash=nativeWorkflowHash(target);
     };
     const place=recreatePlace(target),invocation=run.invocation;
@@ -757,9 +775,14 @@ function TeamWorkspace({user,workspace,workspaces,onWorkspace,call,authorized,of
     return ()=>{
       const inputs=Object.fromEntries(Object.entries(invocation.inputs).filter(([port,id])=>typeof id==="string"&&id&&target.inputs.some(item=>item.id===port)));
       const controls=Object.fromEntries(Object.entries(invocation.controls).filter(([id,value])=>["string","number","boolean"].includes(typeof value)&&target.controls.some(control=>control.id===id))) as Record<string,string|number|boolean>;
-      try{presetTool(target,inputs,controls);}catch(cause){setError((cause as Error).message);return;}
+      try{presetTool(target,inputs,{...controls,...override});}catch(cause){setError((cause as Error).message);return;}
       setCapabilityId(target.id);if(place.mode)setVideoMode(place.mode);location.hash=place.hash;
     };
+  };
+  const recreate:RecreateRun=run=>reopen(run);
+  const rescue:RescueRun=run=>{
+    const target=catalogue.find(m=>m.id===run.capability_id),smaller=target&&run.invocation&&isOutOfMemory(run.error)?smallerRun(target.controls,run.invocation.controls):undefined;
+    const go=smaller&&reopen(run,smaller.controls);return smaller&&go?{changes:smaller.changes,go}:undefined;
   };
   const recreateMedia:RecreateMedia=request=>{
     let setup:Exclude<typeof request,{example:unknown}>|undefined;
@@ -938,10 +961,10 @@ function TeamWorkspace({user,workspace,workspaces,onWorkspace,call,authorized,of
       maxGenerationFrames={trimExtension?.manifest.controls.find(control=>control.id==="generation_frames")?.max??13}/>,"fill")),
     transform:inProject(project=>transform&&page(<TransformVideo manifests={catalogue} statuses={statuses} user={user} workspace={workspace} project={project}
       workers={transform.choice==="reframe"?localWorkers:runWorkers} call={call} canQueue={canCreate} authorized={authorized}
-      onCapability={setCapabilityId} onQueued={refresh} onModels={openModels} choice={transform.choice} reframe={transform.reframe}
+      onCapability={setCapabilityId} onQueued={refresh} onModels={openModels} choice={transform.choice} reframe={transform.reframe} unifiedSwap={transform.unifiedSwap}
       replace={transform.person?top=>renderOpenJutsu(project,transform.person!,top):undefined}
-      swapThing={objectSwapLocal?top=><TeamComposer key={`${project.id}:${objectSwapLocal.id}`} top={top} manifest={objectSwapLocal}
-        workflowIds={[objectSwapLocal.id]} onCapability={choose} {...composerProps} project={project} workers={runWorkers}/>
+      swapThing={swapPicksHere.thing||swapPicksHere.person||swapPicksHere.look?top=>changeScreen(project,"swap",<SwapPanel key={project.id} top={top} workspace={workspace} project={project} call={call}
+        canEdit={canCreate} picks={swapPicksHere} onChanged={refresh}/>)
         :swapMaskRoute&&swapEditRoute?top=>changeScreen(project,"swap",<SwapThingPanel {...screenAccess} key={project.id}
           top={top} project={project} workerId={swapEditRoute.workerId} onChanged={refresh}/>):undefined}
         />,"fill")),
@@ -1016,10 +1039,12 @@ function TeamWorkspace({user,workspace,workspaces,onWorkspace,call,authorized,of
     <TopBar
       more={phone?runControls:undefined}
       brand={<img className="ds-topbar__brand-image" src={logo} alt="CreativeField"/>}
-      current={currentTool?toolHref(currentTool):navigation.topBarHref}
+      current={navigation.topBarHref}
       items={[
-        ...TOOLS.filter(item=>menusByTool[item.tool]).map(item=>({label:item.label,href:item.href,icon:TOOL_ICONS[item.tool],
-          menu:{features:[],models:[],groups:menusByTool[item.tool],footer:item.tool==="create"||item.tool==="change"?menuFooter(workspaceMenu.videoFooter):undefined}})),
+        {label:"Video",href:"#video",menu:videoMenu,icon:<Clapperboard size={20}/>},
+        {label:"Image",href:"#image",menu:imageMenu,icon:<ImageIcon size={20}/>},
+        {label:"3D",href:"#3d",menu:threeDMenu},
+        ...(workspaceMenu.sections.includes("audio")?[{label:"Audio",href:"#audio"}]:[]),
         {label:"All tools",href:"#make",icon:<LayoutGrid size={20}/>},
         ...(workspaceMenu.sections.includes("nodes")?[
           {label:"Models",href:"#catalogue",onSelect:openModels},{label:"Nodes",href:"#nodes"},
@@ -1041,7 +1066,7 @@ function TeamWorkspace({user,workspace,workspaces,onWorkspace,call,authorized,of
         {accountControl}
       </>}
     />
-    <WorkflowInfoProvider><MediaEditProvider canAnnotate={!!editRoute} onEdit={canCreate?editPreview:undefined} saveCrop={canCreate?savePreviewCrop:undefined} tools={mediaTools}><RecreateProvider value={recreate}><RecreateMediaProvider value={recreateMedia}><AmbientReelProvider src={reelForSection(section)}>
+    <WorkflowInfoProvider><MediaEditProvider canAnnotate={!!editRoute} onEdit={canCreate?editPreview:undefined} saveCrop={canCreate?savePreviewCrop:undefined} tools={mediaTools}><RecreateProvider value={recreate}><RescueProvider value={rescue}><RecreateMediaProvider value={recreateMedia}><AmbientReelProvider src={reelForSection(section)}>
     <div className="cf-team__body">
     <div className="cf-team__main ds-canvas">
     {workspaceBar&&<WorkspaceBar density={route!=="imageedit"}
@@ -1067,7 +1092,7 @@ function TeamWorkspace({user,workspace,workspaces,onWorkspace,call,authorized,of
           location.hash=action.href;
         }}
         :undefined}
-      end={<><ProblemBar/>{navigation.section==="make"&&<GettingStarted userId={user.id} workspaceId={workspace.id} admin={workspace.role==="admin"} audience={audienceOf(user)} workers={workers} onModels={openModels} onSettings={()=>setSettings("workers")}/>}</>}
+      end={<><ProblemBar/>{navigation.section==="make"&&<GettingStarted userId={user.id} workspaceId={workspace.id} admin={workspace.role==="admin"} audience={audienceOf(user)} workers={workers} onModels={openModels} onSettings={()=>setSettings("workers")}/>}<OnboardingGate open={onboardingOpen} workspaceId={workspace.id} call={call} onClose={()=>setOnboardingOpen(false)}/></>}
       info={<WorkflowInfoButton/>}
       />}
     {cloudDialog&&<CloudRunDialog kind={cloudDialog} onUse={useCloud} onKeep={keepRunTarget}
@@ -1080,7 +1105,7 @@ function TeamWorkspace({user,workspace,workspaces,onWorkspace,call,authorized,of
     {intentMode&&route!=="openjutsu"&&route!=="imageedit"&&workspaceBar&&project&&<IntentDock imageWorkspace={["image","remix","marketing"].includes(route)} videoWorkspace={route==="video"||route==="motion"} value={intentText} onChange={setIntentText} onSubmit={runIntent} available={intentAvailable} busy={imageBusy||intentUploading} reference={intentReference?{name:intentReference.name,src:assetUrl(workspace.id,intentReference.id)}:undefined} referenceError={intentReferenceError} onReferenceAsset={id=>void intentAsset(id)} onReferenceFile={file=>void intentFile(file)} onRemoveReference={clearIntentReference}/>}
     </div>
     </div>
-    </AmbientReelProvider></RecreateMediaProvider></RecreateProvider></MediaEditProvider></WorkflowInfoProvider>
+    </AmbientReelProvider></RecreateMediaProvider></RescueProvider></RecreateProvider></MediaEditProvider></WorkflowInfoProvider>
     <Dialog wide className="cf-models-dialog" open={modelsOverlay.open&&authorized} title="Models" onClose={closeModels}>
       <CapabilityCatalogue embedded manifests={navigation.catalogueManifests} statuses={statuses} checking={checking}
         recheckLabel={workspace.role==="admin"?"Probe workers and recheck":"Refresh status"}

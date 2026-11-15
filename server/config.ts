@@ -25,6 +25,8 @@ export type ServerConfig = {
   aiText?: AiTextConfig;
   /** Comfy Cloud key from COMFY_CLOUD_API_KEY or COMFY_CLOUD_API_KEY_FILE. Never stored in the database. */
   comfyCloudApiKey?: string;
+  /** Worker origins an iframe may load (the H3 Editor page). */
+  frameOrigins?: string[];
 };
 
 /** An endpoint that speaks the OpenAI chat-completions API: OpenRouter, OpenAI or DeepSeek. */
@@ -193,6 +195,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     port,
     nodeEditorOrigin,
     nodeEditorPort:editorPort,
+    frameOrigins: [env.COMFYFIELD_HYPERFLOW_ORIGIN, env.COMFYFIELD_COMFY_ORIGIN].flatMap(value => { if(!value?.trim())return []; try{return [new URL(value.trim()).origin];}catch{return [];} }),
     aiText: aiTextConfig(env),
     comfyCloudApiKey: comfyCloudKey(env),
     sessionTtlHours: positiveInteger(env.SESSION_TTL_HOURS, 168, "SESSION_TTL_HOURS", 24 * 365),

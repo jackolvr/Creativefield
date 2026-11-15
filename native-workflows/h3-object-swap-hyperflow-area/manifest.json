@@ -104,19 +104,31 @@
       }
     },
     {
-      "id": "clip_seconds",
+      "id": "source_seconds",
       "label": "Length (seconds)",
-      "type": "select",
-      "options": [
-        5,
-        8,
-        10
-      ],
+      "type": "number",
+      "min": 1,
+      "max": 15,
+      "step": 1,
+      "default": 5,
+      "binding": {
+        "node": "5",
+        "field": "frame_load_cap",
+        "transform": "seconds_to_loader_frames"
+      }
+    },
+    {
+      "id": "clip_seconds",
+      "label": "Piece per generation (seconds)",
+      "type": "number",
       "default": 8,
       "binding": {
         "node": "7",
         "field": "clip_seconds"
-      }
+      },
+      "min": 2.5,
+      "max": 15,
+      "step": 0.1
     },
     {
       "id": "resolution",

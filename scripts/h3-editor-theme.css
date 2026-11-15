@@ -1,0 +1,42 @@
+/*
+ * CreativeField (#ds) theme for the embedded H3 Editor.
+ *
+ * The upstream editor runs on the ComfyUI worker in its own iframe. Its colours come from the
+ * variables below, so this file maps them to the CreativeField design tokens. Copy it to the end of
+ * editor/editor.css in the installed H3 Editor pack (see scripts/install-h3-editor.ps1) and keep the
+ * pack at the pinned commit; do not edit the upstream editor itself for styling.
+ */
+:root {
+  --room: #0f1113;            /* --surface-page */
+  --panel: #131517;           /* --surface-panel */
+  --raised: #1c1e20;          /* --surface-control */
+  --hover: #232528;           /* --surface-control-hover */
+  --line: rgba(255, 255, 255, 0.12); /* --line-strong */
+  --line-hi: rgba(255, 255, 255, 0.2);
+  --text: #f7f7f8;            /* --text-primary */
+  --muted: #898a8b;           /* --text-secondary */
+  --tungsten: #2fa8ff;        /* --accent */
+  --tungsten-ink: #0b1520;    /* --text-on-accent */
+  --tungsten-hi: #6cc4ff;
+  --live: #2fa8ff;
+  --live-wash: rgba(47, 168, 255, 0.12); /* --accent-soft */
+  --danger: #e8b46a;          /* --status-danger */
+  --radius: 14px;             /* --radius-lg */
+}
+html, body {
+  font-family: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+::selection {
+  background: rgba(47, 168, 255, 0.32);
+  color: var(--text);
+}
+.fx {
+  border-color: rgba(47, 168, 255, 0.35);
+  background: rgba(47, 168, 255, 0.12);
+}
+.menu .check-badge.bad,
+.drift-mark,
+.still-mark.frozen,
+.cut-score.bad {
+  color: #17140a;
+}

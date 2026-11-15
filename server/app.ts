@@ -39,6 +39,7 @@ import {referenceStagingRoutes} from "./reference-staging";
 import {referenceInspectionRoutes} from "./comfy-editor";
 import {replaceAnchorRoutes} from "./replace-anchors";
 import {videoProbeSourceRoutes} from "./video-probe";
+import {swapReferenceRoutes} from "./swap-reference";
 import {editPlanRoutes} from "./edit-plan";
 import {DirectExecutionService,type ProviderDependencies} from "./providers/execution";
 import {productionDirectRegistry} from "./providers/registry";
@@ -57,6 +58,9 @@ import {motionClipCheckRoutes} from "./motion-clip-check";
 import {blockShotRoutes} from "./stage/routes";
 import {replaceClipCheckRoutes} from "./replace-clip-check";
 import {promptExpanderRoutes} from "./prompt-expander";
+import {onboardingRoutes} from "./onboarding";
+import {h3EditorRoutes} from "./h3-editor";
+import {h3EditorProxyRoutes} from "./h3-proxy";
 import {CLOUD_KEY_REFUSED_REASON,cloudAccountFor} from "./cloud-account";
 import {ROUTER_MODELS} from '../src/capabilities/router-models';
 import {cloudReadiness} from "./cloud-readiness";
@@ -408,6 +412,7 @@ export async function buildServer(config: ServerConfig, pool: Pool, dependencies
   await referenceInspectionRoutes(app,pool);
   await replaceAnchorRoutes(app,pool,store,catalogue);
   await videoProbeSourceRoutes(app,pool,store);
+  await swapReferenceRoutes(app,pool,store);
   await editPlanRoutes(app,pool);
   const videoExtensions=await videoExtensionRoutes(app,pool,store,catalogue);
   const posePreviews=await posePreviewRoutes(app,pool,store,catalogue);
@@ -417,6 +422,9 @@ export async function buildServer(config: ServerConfig, pool: Pool, dependencies
   await blockShotRoutes(app,pool,store);
   await replaceClipCheckRoutes(app,pool,store);
   await promptExpanderRoutes(app,pool);
+  await onboardingRoutes(app,pool,config);
+  await h3EditorRoutes(app,pool);
+  await h3EditorProxyRoutes(app,pool,config.publicOrigin);
   app.get(`${base}/node-editor`,async request=>{
     const {workspaceId}=workspaceParam.parse(request.params);await member(pool,request,workspaceId,"creator");
     if(!config.nodeEditorOrigin)throw new HttpError(503,"The isolated node-editor origin is not configured");
@@ -431,7 +439,7 @@ export async function buildServer(config: ServerConfig, pool: Pool, dependencies
   };
   app.get("/comfy/:workspaceId",editorRedirect);
   app.get("/comfy/:workspaceId/*",editorRedirect);
-  if(config.serveUi)await serveTeamUi(app,config.uiRoot!,config.nodeEditorOrigin);
+  if(config.serveUi)await serveTeamUi(app,config.uiRoot!,config.nodeEditorOrigin,config.frameOrigins);
   return { app, store, catalogue, execution,directExecution,chatgptImages,storyboards,videoExtensions,posePreviews,audioProcessing,marketing,workerMonitor:new WorkerMonitor(pool,catalogue) };
 }
 

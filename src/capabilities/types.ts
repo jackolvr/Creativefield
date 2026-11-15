@@ -9,7 +9,7 @@ export type MediaType = "image" | "video" | "audio" | "mask" | "layer" | "refere
 export type ExecutionRoute = "local_comfy" | "comfy_cloud" | "comfy_partner" | "direct_provider";
 export type ReadinessState = "ready" | "install_required" | "download_required" | "credentials_required" | "incompatible" | "offline" | "unsupported";
 export type Implementation = "implemented" | "experimental" | "planned";
-export type Binding = { node: string; field: string; transform?: "seconds_to_wan_frames" | "divide_native_scale" };
+export type Binding = { node: string; field: string; transform?: "seconds_to_wan_frames" | "divide_native_scale" | "seconds_to_loader_frames" };
 export type Port = { id: string; label: string; type: MediaType; required: boolean; binding?: Binding; representation?: "image" | "video"; omitWhenMissing?: boolean;
   /** An optional input that splices nodes into the graph: when it is empty, links to the `relink` nodes go to their
    *  original outputs again and the `remove` nodes (the loader and its splice) are dropped. */

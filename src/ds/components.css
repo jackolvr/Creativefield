@@ -677,8 +677,8 @@
 .ds-fnmenu__row { width: calc(var(--fn-n) * var(--fn-tile-w) + (var(--fn-n) - 1) * var(--space-2)); max-width: 100%; min-width: 0; padding: var(--space-2) 0 var(--space-3); }
 .ds-fnmenu__head { display: flex; flex-wrap: wrap; row-gap: 2px; align-items: baseline; gap: var(--space-3); min-width: 0; margin-bottom: var(--space-2); }
 .ds-fnmenu__title { font-size: var(--text-sm); line-height: var(--lh-sm); font-weight: var(--weight-bold); color: var(--text-primary); white-space: nowrap; }
-.ds-fnmenu__text { order: 3; flex-basis: 100%; font-size: var(--text-2xs); color: var(--text-meta); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.ds-fnmenu { --fn-tile-w: calc(240px * var(--ui-scale)); }
+.ds-fnmenu__text { order: 3; flex-basis: 100%; font-size: var(--text-xs); color: var(--text-meta); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.ds-fnmenu { --fn-tile-w: calc(288px * var(--ui-scale)); }
 .ds-fnmenu__tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--fn-tile-w)), 1fr)); gap: var(--space-2); }
 .ds-fnmenu__tile { position: relative; overflow: hidden; aspect-ratio: 16 / 9; border-radius: var(--radius-lg); background: var(--surface-panel); border: 1px solid var(--line-hairline); text-align: left; transition: transform var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease); }
 .ds-fnmenu__tile > img, .ds-fnmenu__tile > video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
@@ -689,8 +689,8 @@
 .ds-fnmenu__tile:is(:hover, :focus-visible) { border-color: var(--accent-ring); transform: translateY(-1px); outline: 0; }
 .ds-fnmenu__tile:is(:hover, :focus-visible) > img { opacity: 1; }
 .ds-fnmenu__cap { position: absolute; z-index: 1; left: var(--space-2); right: var(--space-2); bottom: var(--space-2); display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.ds-fnmenu__name { font-size: var(--text-xs); line-height: var(--lh-xs); font-weight: var(--weight-medium); color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ds-fnmenu__model { display: flex; align-items: center; gap: 4px; font-size: var(--text-3xs); color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ds-fnmenu__name { font-size: var(--text-sm); line-height: var(--lh-sm); font-weight: var(--weight-medium); color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ds-fnmenu__model { display: flex; align-items: center; gap: 4px; font-size: var(--text-xs); color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ds-fnmenu__badge { position: absolute; z-index: 1; top: var(--space-2); left: var(--space-2); padding: 1px var(--space-2); border-radius: var(--radius-full); background: var(--surface-overlay); font-size: var(--text-3xs); color: var(--text-primary); }
 .ds-fnmenu__foot { flex-basis: 100%; justify-content: flex-end; display: inline-flex; align-items: center; gap: var(--space-1); align-self: flex-end; padding: var(--space-2) 0; font-size: var(--text-2xs); color: var(--text-secondary); transition: color var(--dur-fast) var(--ease); }
 .ds-fnmenu__foot:hover { color: var(--text-primary); }
@@ -2231,6 +2231,9 @@ button.ds-castcard__main { cursor: pointer; }
 /* Floating tool rail: sits over the surface, moved by its grip. */
 .ds-stagebox { position: relative; }
 .ds-floatrail { position: absolute; z-index: 5; display: flex; flex-direction: column; align-items: center; padding: 0 var(--space-2) var(--space-6); border-radius: var(--radius-xl); background: var(--surface-control); box-shadow: var(--shadow-pop); }
+
+.ds-floatrail__anchor { position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none; }
+.ds-floatrail--fixed { position: fixed; z-index: 60; }
 .ds-floatrail .ds-toolrail { background: transparent; padding-top: 0; }
 .ds-floatrail__grip { align-self: stretch; height: calc(18px * var(--ui-scale)); display: grid; place-items: center; cursor: grab; touch-action: none; }
 .ds-floatrail__grip:active { cursor: grabbing; }

@@ -7,9 +7,9 @@ import {WorkflowDescription} from "./workflow-info";
 import type {CapabilityManifestV2} from "../capabilities/types";
 import {closestAspectOption,type VideoHandoff} from "../capabilities/shot-direction";
 
-type FilmProps={workspace:Workspace;project:Project;canCreate:boolean;onOpenShotGenerator:()=>void;onSendToVideo?:(assetId:string,handoff?:VideoHandoff)=>void};
-const filmModule=Object.values(import.meta.glob<{FilmStudio:ComponentType<FilmProps>}>("../film-studio/FilmStudio.tsx"))[0];
-const FilmStudio=filmModule?lazy(async()=>({default:(await filmModule()).FilmStudio})):undefined;
+type FilmProps={workspace:Workspace;project:Project;call:Call;canCreate:boolean;onOpenShotGenerator:()=>void;onSendToVideo?:(assetId:string,handoff?:VideoHandoff)=>void};
+const filmModule=Object.values(import.meta.glob<{H3FilmStudio:ComponentType<FilmProps>}>("../film-studio/H3FilmStudio.tsx"))[0];
+const FilmStudio=filmModule?lazy(async()=>({default:(await filmModule()).H3FilmStudio})):undefined;
 export const filmStudioInstalled=!!FilmStudio;
 
 type Options={sets:Array<{id:string;name:string;text:string}>;moves:Array<{id:string;name:string}>;seconds:number[]};
@@ -121,7 +121,7 @@ export function BlockWorkspace({screen,depthRoute,presetTool,onTarget,onRouter,.
       location.hash=nativeWorkflowHash(delivery.manifest);
     }):undefined;
     return FilmStudio?<Suspense fallback={null}>
-      <FilmStudio workspace={props.workspace} project={props.project} canCreate={props.canCreate}
+      <FilmStudio workspace={props.workspace} project={props.project} call={props.call} canCreate={props.canCreate}
         onOpenShotGenerator={()=>{location.hash="block";}} onSendToVideo={onSendToVideo}/>
     </Suspense>:null;
   }

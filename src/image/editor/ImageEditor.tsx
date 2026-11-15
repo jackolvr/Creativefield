@@ -7,7 +7,8 @@ import { AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEn
 import {
   AnnotationEditor, ActionBar, CommandBar, ContextMenu, Working, clipboardFile, DockStack, DockPanel, DockTabs, FloatingPanel, FxIcon, InlineSelect, InlineSlider, LabeledRow, MenuButton, Block, Button, ColorPicker, ForegroundBackground, Canvas, Checkbox, InfoButton, ShortcutSheet, type ShortcutGroup, OptionsBar, StatusBar, TextField, Dialog, EmptyState, IconButton, LayerList, LayerRow, Meta, Page, PanelSection, PromptField,
   ContactSheet, ChoiceDialog,
-  Notice, CropHandles, TransformHandles, ParamButton, Row, SegmentedTabs, SliderField, Split, Stage, Swatches, Thumb, ThumbGrid, ToolRail, Toolbar, UploadSlot, useToast,
+  Notice, CropHandles, TransformHandles, ParamButton, Row, SegmentedTabs, SliderField, Split, Stage, Swatches, Thumb, ThumbGrid, ToolRail, Toolbar, UploadSlot, useToast, Progress,
+  useMediaEditor,
 } from "../../ds";
 import { assetUrl, workspacePath, type Asset, type AssetPage, type Call, type Project, type Run, type Workspace, type CharacterRecord } from "../../team/api";
 import {characterEditBindings,identityReferenceInstruction,identityReferenceSheetInstruction,type CharacterEditBindings} from "./character-references";
@@ -46,6 +47,7 @@ import { allShape, selectionInLayerSpace, selectLayerPixels, cropSelectionMask, 
 import "./editor.css";
 import { channelPixels, type PreviewChannel } from "./channel-preview";
 import { reorderVisible } from "../../ds/dock-layout";
+import {featherTile, planQuickTiles, visibleDocumentRect} from "./quick-upscale";
 import type {PreservationRecord} from "../../capabilities/edit-preservation";
 import {PrecisionReview,type PrecisionResult} from "./PrecisionReview";
 import {cancelReferenceEdit,finishReferenceEdit,referenceEditFor} from "../../team/reference-return";
@@ -194,6 +196,7 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
   const annotationHandoff=useRef("");
   const [aiBusy, setAiBusy] = useState<AiMode | null>(null);
   const [upscaling,setUpscaling]=useState(false);
+  const [quickProgress,setQuickProgress]=useState<{done:number;total:number}|null>(null);
   const [editIntent,setEditIntent]=useState<EditIntent>("auto");
   const [preserveOriginal,setPreserveOriginal]=useState(false);
   const [editScope,setEditScope]=useState<EditScope>("auto");
@@ -583,8 +586,6 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
     refreshBitmaps();
   }
 
-  /** Upload editor pixels. A working file for a model (crop, painted mask) is an intermediate and
-   *  never appears in the library; a reference the person adds is material and does. */
   async function uploadPng(canvas: HTMLCanvasElement, kind: "image" | "mask", name: string, parentId?:string, intermediate=false) {
     const form = new FormData();
     form.append("file", new File([await toPng(canvas)], name, { type: "image/png" }));
@@ -695,7 +696,7 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
       const mask=blankCanvas(w,h),mc=mask.getContext("2d")!;mc.fillStyle="#000";mc.fillRect(0,0,w,h);mc.drawImage(white,region.x,region.y,region.w,region.h,0,0,w,h);
       const cc=crop.getContext("2d",{willReadFrequently:true})!,pixels=cc.getImageData(0,0,w,h);
       prefillRemoval(pixels,mc.getImageData(0,0,w,h));cc.putImageData(pixels,0,0);
-      const source=await uploadPng(crop,"image",`remove-source-${Date.now()}.png`,undefined,true),painted=await uploadPng(mask,"mask",`remove-mask-${Date.now()}.png`,undefined,true);
+      const source=await uploadPng(crop,"image",`remove-source-${Date.now()}.png`),painted=await uploadPng(mask,"mask",`remove-mask-${Date.now()}.png`);
       const done=await runAndWait(precision,{source_image:source.id,edit_mask:painted.id},{prompt:selectionInstruction(aiPrompt,true)+" Fill the blank masked region with the surrounding background. Do not add any object there; match the nearby textures, lighting and perspective.",mask_mode:"replace",context_pixels:32,feather_pct:.5});
       if(!done||!alive.current)return;
       if(done.state!=="succeeded"||!done.output_ids[0])throw new Error(done.error||"Removing the selection did not finish.");
@@ -921,6 +922,46 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
     }catch(error){toast((error as Error).message);}finally{if(alive.current){setUpscaling(false);setAiBusy(null);}}
   }
 
+  async function quickUpscaleVisible(){
+    if(!doc||!upscale||aiBusy||!canEdit||!authorized)return;
+    const canvas=canvasRef.current,stage=stageRef.current;
+    if(!canvas||!stage)return;
+    const snapshot=doc,signature=imageSignature(doc);
+    const canvasRect=canvas.getBoundingClientRect(),stageRect=stage.getBoundingClientRect();
+    const visible=visibleDocumentRect(canvasRect,stageRect,doc.width,doc.height);
+    if(!visible){toast("Show part of the picture before quick upscaling.");return;}
+    const tiles=planQuickTiles(visible,doc.width,doc.height,{screenPx:512,documentPerScreen:doc.width/Math.max(1,canvasRect.width),maxTiles:24});
+    if(!tiles.length)return;
+    const flat=blankCanvas(doc.width,doc.height);renderDoc(flat.getContext("2d")!,{...snapshot,selection:null},{background:true});
+    const result=blankCanvas(doc.width,doc.height),resultContext=result.getContext("2d")!;
+    setUpscaling(true);setAiBusy("modify");setQuickProgress({done:0,total:tiles.length});
+    try{
+      for(const [index,tile] of tiles.entries()){
+        if(!alive.current)return;
+        const source=blankCanvas(tile.source.w,tile.source.h);
+        source.getContext("2d")!.drawImage(flat,tile.source.x,tile.source.y,tile.source.w,tile.source.h,0,0,tile.source.w,tile.source.h);
+        const asset=await uploadPng(source,"image",`quick-upscale-${Date.now()}-${index}.png`,undefined,true);
+        const done=await runAndWait(upscale,{source_image:asset.id},{scale_by:0.5});
+        if(!done||!alive.current)return;
+        if(done.state!=="succeeded"||!done.output_ids[0])throw new Error(done.error||"Quick upscale did not finish.");
+        const {bitmap}=await loadBitmap(assetUrl(workspace.id,done.output_ids[0]));
+        const patch=blankCanvas(tile.source.w,tile.source.h);
+        patch.getContext("2d")!.drawImage(bitmap,0,0,tile.source.w,tile.source.h);
+        featherTile(patch,tile.feather);
+        resultContext.drawImage(patch,tile.x,tile.y);
+        setQuickProgress({done:index+1,total:tiles.length});
+      }
+      if(!liveDoc.current||imageSignature(liveDoc.current)!==signature)throw new Error("The image changed. The quick upscale was not applied.");
+      const key=`bmp:quick-upscale:${crypto.randomUUID()}`;setBitmap(key,result);
+      setHist(old=>{
+        if(!old||imageSignature(old.present)!==signature)return old;
+        return commit(old,addAiResultLayer(old.present,key,"Quick upscale"));
+      });
+      thumbs.current.clear();refreshBitmaps();toast(`Quick upscale applied to the visible area (${tiles.length} tile${tiles.length===1?"":"s"}).`);
+    }catch(error){toast((error as Error).message);}
+    finally{if(alive.current){setUpscaling(false);setAiBusy(null);setQuickProgress(null);}}
+  }
+
   async function analyseObjects(prompt=subject.trim()||"object"){
     if(!doc||!segment||selecting||!canEdit||!authorized)return;
     const snapshot=doc,signature=imageSignature(doc);setSelecting(true);hoveredObject.current=-1;
@@ -961,7 +1002,7 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
     try {
       const flat = blankCanvas(snapshot.width, snapshot.height);
       renderDoc(flat.getContext("2d")!, { ...snapshot, selection: null }, { background: true });
-      const source = await uploadPng(flat, "image", `select-source-${Date.now()}.png`, undefined, true);
+      const source = await uploadPng(flat, "image", `select-source-${Date.now()}.png`);
       const done = await runAndWait(segment, { source_image: source.id }, { prompt: query });
       if (!done || !alive.current) return;
       const out = done.output_ids[0];
@@ -1843,6 +1884,19 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
   async function save() {
     try { if (await savePng()) toast("Saved to Library"); } catch (e) { toast((e as Error).message); }
   }
+  /* Use as first frame: the picture goes to the same places as from the full view (TeamApp mediaTools):
+     Create Video as its start picture, or Swap a thing as its first frame. Only targets ready here are listed; the
+     picture is saved to the Library first, so the tool receives a project file. */
+  const mediaTools = useMediaEditor().tools;
+  const FIRST_FRAME = ["animate", "swap-first-frame"];
+  const firstFrameTargets = (mediaTools?.({ src: "", name: "", mediaType: "image" })?.openIn ?? []).filter((target) => FIRST_FRAME.includes(target.id));
+  async function useAsFirstFrame(id: string) {
+    try {
+      const asset = await savePng();
+      if (!asset) return;
+      await mediaTools?.({ src: assetUrl(workspace.id, asset.id), name: asset.name, mediaType: "image" })?.openIn?.find((target) => target.id === id)?.run();
+    } catch (e) { toast((e as Error).message); }
+  }
   /* Opened from a tool's reference slot: the edited picture goes back into that slot. */
   const [returnTicket] = useState(() => referenceEditFor(workspace.id, openAssetId));
   const [returnError, setReturnError] = useState("");
@@ -2065,7 +2119,7 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
               <IconButton label="Undo" disabled={!hist || hist.past.length === 0} onClick={() => setHist((h) => (h ? undo(h) : h))}><Undo2 size={16} /></IconButton>
               <IconButton label="Redo" disabled={!hist || hist.future.length === 0} onClick={() => setHist((h) => (h ? redo(h) : h))}><Redo2 size={16} /></IconButton>
               <Button variant="secondary" disabled={downloading} onClick={() => void download()}>{downloading ? "Exporting…" : "Download PNG"}</Button>
-              {canEdit&&authorized&&<MenuButton label="Document actions" icon={<Folder size={16}/>} items={[{id:"open",label:"Open document",onSelect:()=>setDocumentPicker(true)},{id:"png",label:"Save PNG to Library",onSelect:()=>void save(),disabled:saving}]}/>}
+              {canEdit&&authorized&&<MenuButton label="Document actions" icon={<Folder size={16}/>} items={[{id:"open",label:"Open document",onSelect:()=>setDocumentPicker(true)},{id:"png",label:"Save PNG to Library",onSelect:()=>void save(),disabled:saving},...firstFrameTargets.map((target)=>({id:target.id,label:`First frame: ${target.label}`,onSelect:()=>void useAsFirstFrame(target.id),disabled:saving}))]}/>}
               {returnTicket && canEdit && authorized
                 ? <><Button variant="secondary" disabled={saving} onClick={backWithoutChanges}>Back without changes</Button><Button variant="primary" disabled={saving} onClick={() => void useInTool()}>{saving ? "Saving…" : "Use and go back"}</Button></>
                 : canEdit && authorized && <Button variant="primary" disabled={documents.busy} onClick={() => void documents.save().then(()=>toast("Layered document saved")).catch(()=>{})}>{documents.busy ? "Saving…" : "Save"}</Button>}
@@ -2073,6 +2127,8 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
         >
           {transforming?<><Meta>Transforming layer: {layer?.name??"Layer"} · Alt scales from center · Shift snaps 15°</Meta><Button variant="secondary" onClick={()=>finishTransform(false)}>Cancel transform</Button><Button variant="primary" onClick={()=>finishTransform(true)}>Apply transform</Button></>:<>
           <Button variant="secondary" disabled={!canEdit} onClick={() => setPicker(true)}><ImagePlus size={16} />Import image</Button>
+          {upscale&&doc&&canEdit&&authorized&&<Button variant="secondary" disabled={!!aiBusy||!!quickProgress} onClick={()=>void quickUpscaleVisible()} title="Upscale the visible area in overlapping tiles">Quick upscale</Button>}
+          {quickProgress&&<Progress label="Quick upscale" value={Math.round(100*quickProgress.done/quickProgress.total)} detail={`Tile ${quickProgress.done} of ${quickProgress.total}`}/>}
           <Button variant="secondary" onClick={()=>selectionAction("all")}>Select all</Button>
           {(doc.selection||quickMask)&&<Button variant="secondary" disabled={!doc.selection} onClick={()=>selectionAction("clear")}>Deselect</Button>}
           {layer&&layer.kind!=="adjust"&&!layer.locks?.position&&!quickMask&&!maskEdit&&canEdit&&authorized&&!aiBusy&&<Button variant="secondary" title={`Free transform ${layer.name} (Ctrl+T)`} onClick={beginTransform}>Transform layer</Button>}
@@ -2114,7 +2170,7 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
               onDragOver={event=>{if(!subjectRelight&&edit&&canEdit&&authorized&&!aiBusy&&(event.dataTransfer.types.includes(CHARACTER_DRAG_TYPE)||event.dataTransfer.types.includes("text/plain")))event.preventDefault();}}
               onDrop={event=>{const id=characterDropId(event.dataTransfer.getData(CHARACTER_DRAG_TYPE),event.dataTransfer.getData("text/plain"));if(!id)return;event.preventDefault();event.stopPropagation();const canvas=canvasRef.current;if(!canvas)return;const bounds=canvas.getBoundingClientRect();if(bounds.width<=0||bounds.height<=0||event.clientX<bounds.left||event.clientX>bounds.right||event.clientY<bounds.top||event.clientY>bounds.bottom){toast("Drop the character inside the image.");return;}void placeCharacter(id,{x:(event.clientX-bounds.left)/bounds.width,y:(event.clientY-bounds.top)/bounds.height});}}
               onPointerDown={event=>{if(event.button===0&&event.target===event.currentTarget&&!transformSession.current){if(doc.selection)lastSelection.current=doc.selection;if(doc.selection||doc.selectedId)apply({...doc,selection:null,selectedId:null});setMulti([]);}}}
-              status={aiBusy ? <Working label={upscaling?"Upscaling…":AI_BUSY[aiBusy]} /> : selecting ? <Working label="Selecting…" /> : undefined} rail={transforming?undefined:(
+              status={aiBusy ? <Working label={upscaling?(quickProgress?`Quick upscale · ${quickProgress.done}/${quickProgress.total}`:"Upscaling…"):AI_BUSY[aiBusy]} /> : selecting ? <Working label="Selecting…" /> : undefined} rail={transforming?undefined:(
               <div className="cf-editor-rail">
                 <ToolRail label="Tool" value={tool} onChange={next=>{setTool(next);if(next==="maskBrush")setMaskEdit(null);}} items={[
                   { id: "crop", label: "Crop (C)", icon: <Crop size={18} /> },

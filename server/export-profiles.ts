@@ -16,7 +16,8 @@ const MAX_BUFFER_BYTES=2*1024*1024;
 // Only self-contained media demuxers belong here. Indirect inputs (concat, HLS,
 // playlists, image sequences) would let a small stored manifest consume bytes
 // that are not covered by the source hash recorded in export provenance.
-const SELF_CONTAINED_DEMUXERS="mov,matroska,webm,avi,mpegts,mpeg,mpegvideo,ogg";
+/** Containers a self-contained clip may use; FFmpeg refuses every other demuxer (no playlists, no remote parts). */
+export const SELF_CONTAINED_DEMUXERS="mov,matroska,webm,avi,mpegts,mpeg,mpegvideo,ogg";
 
 export type ExportProfile={
   readonly id:"mp4-h264-720p24"|"mp4-h264-1080p24";

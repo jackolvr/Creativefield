@@ -7,7 +7,9 @@ import {activeRun} from "./state";
 import type {SwapStep} from "./swap-thing";
 
 /** A step that carries its own words for the server (the mask step sends a tracking prompt, not a control). */
-export type TrackedStep = SwapStep & {tracking?: Record<string, unknown>};
+export type TrackedStep = SwapStep & {tracking?: Record<string, unknown>; /** The worker for this step, when the steps of one attempt run on different ComfyUIs. */ workerId?: string;
+  /** The sound rule this step's workflow takes: a video swap keeps the clip's sound ("preserve"); picture steps are "mute". */
+  audioPolicy?: "preserve" | "replace" | "mix" | "mute"};
 
 /** What the step is doing, in the panel: "Find the red car…". */
 export function stepLabel(step: SwapStep): string { return `${step.label}…`; }
@@ -15,15 +17,15 @@ export function stepLabel(step: SwapStep): string { return `${step.label}…`; }
 export type SwapStepBody = {
   projectId: string; workerId: string; idempotencyKey: string; capabilityId: string; version: string;
   routeId: "local"; inputs: Record<string, string>; elementInputs: Record<string, never>;
-  controls: Record<string, unknown>; audioPolicy: "mute"; tracking?: Record<string, unknown>;
+  controls: Record<string, unknown>; audioPolicy: NonNullable<TrackedStep["audioPolicy"]>; tracking?: Record<string, unknown>;
 };
 
 /** The body the server takes for one step of one attempt. */
 export function swapStepBody(step: TrackedStep, inputs: Record<string, string>, target: {projectId: string; workerId: string; requestId: string}): SwapStepBody {
   return {
-    projectId: target.projectId, workerId: target.workerId, idempotencyKey: `swap-${target.requestId}-${step.id}`,
+    projectId: target.projectId, workerId: step.workerId ?? target.workerId, idempotencyKey: `swap-${target.requestId}-${step.id}`,
     capabilityId: step.capabilityId, version: step.version, routeId: "local",
-    inputs, elementInputs: {}, controls: step.controls, audioPolicy: "mute",
+    inputs, elementInputs: {}, controls: step.controls, audioPolicy: step.audioPolicy ?? "mute",
     ...(step.tracking ? {tracking: step.tracking} : {}),
   };
 }

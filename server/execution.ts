@@ -56,6 +56,7 @@ import {loadWorkspaceCatalogue} from "./workflow-imports";
 import {hasOwnVideoFinish,planUpscale,upscaleBundle,upscaleControls} from "./chain-upscale";
 import {firstFinishAfter,nextFinishStep} from "./finish-chain";
 import {attachGenerationFacts} from "./resources";
+import {isOutOfMemory} from "../src/capabilities/memory-rescue";
 import {maskedEditReadiness} from "./media-tools";
 import {assertImageExtension,probeImage,type ImageMetadata} from "./image-media";
 import {assertSafeImageFile,imageOutputFiles} from "./image-output";
@@ -946,8 +947,12 @@ export class ExecutionService {
     }
     const entry=history[run.remote_id];
     if(entry?.status?.messages?.some(([type])=>type==="execution_interrupted")) {await this.finish(run,"canceled");return;}
+    /* Out of memory on this computer: free the card at once, so the smaller retry the app offers has room. */
+    const failure=workerFailureReason(entry),outOfMemory=isOutOfMemory(failure);
+    if(outOfMemory&&workerKind(worker)==="local")await this.fetch(worker,"/free",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({unload_models:true,free_memory:true})}).catch(()=>undefined);
     if(entry?.status?.completed) {
       if(entry.status.status_str!=="success") {
+        if(outOfMemory){await this.finish(run,"failed",failure!);return;}
         const revision=(await this.pool.query("SELECT manifest FROM workflow_revisions WHERE workspace_id=$1 AND id=$2",[run.workspace_id,run.workflow_revision_id])).rows[0];
         const media=revision?manifestMediaType(revision.manifest as CapabilityBundle["manifest"]):"output";
         await this.finish(run,"failed",`Worker did not complete the ${media}`);return;

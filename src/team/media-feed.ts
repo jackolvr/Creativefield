@@ -10,11 +10,31 @@ export type FeedKind="video"|"image";
 /** Preparation copies and intermediate steps that never belong in a feed or library. */
 const PREPARATION_KEYS=["libraryHidden","editorDocumentBitmap","fpsPrepare","videoPrepare","sourceLinkedMask","maskNormalization","cleanSource","posePreviewFrame","posePreview","replaceAnchorFrame","videoProbeSource","blockout","intermediate"];
 const preparation=(asset:Asset)=>PREPARATION_KEYS.some(key=>asset.metadata?.[key]!==undefined);
+/** Masks and segmentation helpers are working files for a run, never library results. */
+const workingMask=(asset:Asset)=>{
+  if(asset.media_type==="mask"||asset.metadata?.purpose==="mask"||asset.metadata?.kind==="mask")return true;
+  const capability=String((asset.metadata?.generation as {capabilityId?:unknown}|undefined)?.capabilityId??"");
+  return /(?:^|[-_])(mask|segment)(?:[-_]|$)|segment/i.test(capability)||/mask|segment/i.test(asset.name);
+};
+/** True for files that belong under Runs (masks, preparation copies, intermediate steps), not in Assets. */
+export const isRunWorkingAsset=(asset:Asset)=>preparation(asset)||workingMask(asset);
+/** Files that are a step after a result (upscaling, interpolation, trim, join) are Runs, not end results. */
+const FINISH_STEP=/(upscale|esrgan|recavsr|seedvr2|interpolation|video-trim|concat|nvidia-vfx|reframe)/i;
+/** Uploaded or saved working pictures (blockouts, layout tests, selection guides) never count as results. */
+const WORKING_NAME=/(^|[-_ ])(block|blockout|layout|previs|storyboard|probe|selection|precision|first[-_ ]frame|test|pasted|reference|guide|mask|segment|upscale)([-_ .]|$)|^edit[-_]/i;
+/** The end result that belongs in Assets: not a preparation file, not a mask, not a finish step. */
+export const isEndResultAsset=(asset:Asset)=>{
+  if(isRunWorkingAsset(asset))return false;
+  const capability=String((asset.metadata?.generation as {capabilityId?:unknown}|undefined)?.capabilityId??"");
+  if(capability&&FINISH_STEP.test(capability))return false;
+  if(WORKING_NAME.test(asset.name))return false;
+  return true;
+};
 /** Include library files once, including additional outputs from a multi-image run. */
 export function libraryFeedAssets(assets:Asset[],kind:FeedKind,represented:Set<string>,hiddenCapabilities?:Set<string>):Asset[]{
   const seen=new Set<string>();
   return assets.filter(asset=>{
-    if(asset.media_type!==kind||preparation(asset)||represented.has(asset.id))return false;
+    if(asset.media_type!==kind||isRunWorkingAsset(asset)||represented.has(asset.id))return false;
     const generation=asset.metadata?.generation as {capabilityId?:unknown;upscale?:unknown}|undefined;
     /* A finish output belongs to its result card (with the comparison); it is not a second library entry. */
     if(generation?.upscale)return false;

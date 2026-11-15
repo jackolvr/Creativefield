@@ -150,7 +150,7 @@ Live reference: run `npm run dev` and open `http://localhost:5173/#ds`.
 | Component | Use for |
 |---|---|
 | `TopBar`, `Badge`, `Pill`, `Avatar` | Global navigation and account area. On a phone `TopBar` also draws the bottom tab bar and the More sheet (rule 27) |
-| `FunctionMenu`, `ModelMark` | The Video and Image menus: one row per function, with distinct 16:9 previews for each workflow. Tiles play their short preview on hover or keyboard focus and show the model inside the tile; no repeated model marks in the row heading. Entries are workflows, so the menu never says "Models"; marks are letters, never vendor logos |
+| `FunctionMenu`, `ModelMark` | The Video and Image menus: one row per function, with distinct 16:9 previews for each workflow. Tiles play their short preview on hover or keyboard focus and show the model inside the tile; no repeated model marks in the row heading. Entries are workflows, so the menu never says "Models"; marks are letters, never vendor logos. The top-bar Video and Image menus group tasks by tool instead (Video: Create, Change, Upscale, Film Studio; Image: Create, Change, Upscale, FotoField; src/team/tool-menus.ts): tiles are tasks in plain words, the workflow is chosen inside the tool. Tiles are 288 px wide (×ui-scale); the tile name is `--text-sm`, its line and the row text `--text-xs`, so they stay readable over the preview |
 | `usePhone`, `useDragDismiss`, `useSwipeClose` (`gestures.ts`) | The phone breakpoint and the two touch gestures: pull a sheet down to close, swipe the full view down to close |
 | `UnderlineTabs` | Modes at the top of the control panel |
 | `SegmentedTabs` | Canvas views (History / How it works, List / Grid) |

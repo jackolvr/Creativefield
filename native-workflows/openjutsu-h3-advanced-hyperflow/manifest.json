@@ -4,7 +4,17 @@
   "version": "0.1.0",
   "title": "OpenJutsu multiple characters (HyperFlow H3 Flash)",
   "category": "replacement",
-  "role": {"tool": "change", "task": "replace-person", "option": "several", "rank": 1, "order": 10, "label": "HyperFlow H3 Flash · 1–4 characters", "covers": ["one"]},
+  "role": {
+    "tool": "change",
+    "task": "replace-person",
+    "option": "several",
+    "rank": 1,
+    "order": 10,
+    "label": "HyperFlow H3 Flash · 1–4 characters",
+    "covers": [
+      "one"
+    ]
+  },
   "description": "Replace one to four people in a clip using HyperFlow H3 Flash and character references. Keep the source soundtrack.",
   "inputs": [
     {
@@ -86,6 +96,20 @@
       "binding": {
         "node": "20",
         "field": "roles"
+      }
+    },
+    {
+      "id": "source_seconds",
+      "label": "Length (seconds)",
+      "type": "number",
+      "min": 1,
+      "max": 15,
+      "step": 1,
+      "default": 5,
+      "binding": {
+        "node": "14",
+        "field": "frame_load_cap",
+        "transform": "seconds_to_loader_frames"
       }
     },
     {

@@ -1899,34 +1899,50 @@ export function ToolRail<T extends string>({ label, value, onChange, items }: { 
 
 /* Stage: the work surface of an editor. Checkerboard behind transparent pixels, picture centered and never stretched.
    An optional rail of tools sits to its left. */
-/* The tool rail floats over the work surface: a small grip at its top drags it anywhere inside, and it remembers where it was left. */
-const RAIL_KEY = "cf-floating-rail";
+/* The tool rail floats over the whole window: a grip at its top drags it, it remembers where it was
+   left, and only the viewport limits it. It is portalled out of the canvas so its side panel can
+   never cover or clip it. */
+const RAIL_KEY = "cf-floating-rail-v2";
 function FloatingRail({ children }: { children: ReactNode }) {
+  const anchor = useRef<HTMLSpanElement>(null);
   const box = useRef<HTMLDivElement>(null);
   const drag = useRef<{ dx: number; dy: number } | null>(null);
-  const [pos, setPos] = useState<{ x: number; y: number }>(() => {
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(() => {
     try { const saved = JSON.parse(localStorage.getItem(RAIL_KEY) ?? "null"); if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) return saved; } catch { /* no saved place */ }
-    return { x: 16, y: 16 };
+    return null;
   });
+  useLayoutEffect(() => {
+    if (pos) return;
+    const rect = anchor.current?.getBoundingClientRect();
+    setPos(rect ? { x: rect.left + 16, y: rect.top + 16 } : { x: 16, y: 16 });
+  }, [pos]);
   const clamp = (x: number, y: number) => {
-    const parent = box.current?.parentElement?.getBoundingClientRect(), self = box.current?.getBoundingClientRect();
-    if (!parent || !self) return { x, y };
-    return { x: Math.min(Math.max(0, x), Math.max(0, parent.width - self.width)), y: Math.min(Math.max(0, y), Math.max(0, parent.height - self.height)) };
+    const self = box.current?.getBoundingClientRect(), edge = 8;
+    if (!self) return { x, y };
+    return {
+      x: Math.min(Math.max(edge, x), Math.max(edge, window.innerWidth - self.width - edge)),
+      y: Math.min(Math.max(edge, y), Math.max(edge, window.innerHeight - self.height - edge)),
+    };
   };
-  return (
-    <div ref={box} className="ds-floatrail" style={{ left: pos.x, top: pos.y }}>
-      <div
-        className="ds-floatrail__grip"
-        role="separator"
-        aria-label="Move the toolbar"
-        title="Drag to move the toolbar"
-        onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); drag.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y }; const parent = box.current?.parentElement?.getBoundingClientRect(); if (parent) drag.current = { dx: e.clientX - parent.left - pos.x, dy: e.clientY - parent.top - pos.y }; }}
-        onPointerMove={(e) => { if (!drag.current) return; const parent = box.current?.parentElement?.getBoundingClientRect(); if (!parent) return; setPos(clamp(e.clientX - parent.left - drag.current.dx, e.clientY - parent.top - drag.current.dy)); }}
-        onPointerUp={() => { drag.current = null; try { localStorage.setItem(RAIL_KEY, JSON.stringify(pos)); } catch { /* not saved */ } }}
-      />
-      {children}
-    </div>
-  );
+  if (!pos) return <span ref={anchor} className="ds-floatrail__anchor" aria-hidden />;
+  return <>
+    <span ref={anchor} className="ds-floatrail__anchor" aria-hidden />
+    {createPortal(
+      <div ref={box} className="ds-floatrail ds-floatrail--fixed" style={{ left: pos.x, top: pos.y }}>
+        <div
+          className="ds-floatrail__grip"
+          role="separator"
+          aria-label="Move the toolbar"
+          title="Drag to move the toolbar"
+          onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); drag.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y }; }}
+          onPointerMove={(e) => { if (!drag.current) return; setPos(clamp(e.clientX - drag.current.dx, e.clientY - drag.current.dy)); }}
+          onPointerUp={() => { drag.current = null; try { localStorage.setItem(RAIL_KEY, JSON.stringify(pos)); } catch { /* not saved */ } }}
+        />
+        {children}
+      </div>,
+      document.body,
+    )}
+  </>;
 }
 
 export const Stage = forwardRef<HTMLDivElement, { children: ReactNode; rail?: ReactNode; /** A chip at the bottom of the surface (what the AI is doing). */ status?: ReactNode } & React.HTMLAttributes<HTMLDivElement>>(function Stage({ children, rail, status, ...surfaceProps }, ref) {

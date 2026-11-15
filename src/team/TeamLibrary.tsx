@@ -8,6 +8,7 @@ import type {LibraryScreen} from "./navigation";
 import {RunFrameInspection} from "./RunFrameInspection";
 import {RunReferenceInspection} from "./RunReferenceInspection";
 import { RunDevelop } from "./RunDevelop";
+import {isOutOfMemory} from "../capabilities/memory-rescue";
 import {runFacts} from "./run-facts";
 import {runShape} from "./run-shape";
 const VoiceRunReview=lazy(()=>import("./audio/VoiceRunReview").then(module=>({default:module.VoiceRunReview})));
@@ -19,10 +20,10 @@ import {newestMediaFirst} from "./media-order";
 import {adjacentItem} from "../ds/MediaSequence";
 import {FEATURED_VIDEO_EXAMPLES,LIBRARY_EXAMPLE_VIDEOS,SQUAREHEAD_EXAMPLE_IMAGES,SQUAREHEAD_EXAMPLE_VIDEOS,promoReelForCapability} from "./reels";
 import {jobQueueTitle} from "./job-queue";
-import {producerRunId,useRecreate,useRecreateById} from "./recreate";
+import {producerRunId,useRecreate,useRecreateById,useRescue} from "./recreate";
 import {capabilityHasControl,isTrackedMaskWorkflow} from "../capabilities/lookup";
 import {sharpenRunBody} from "./sharpen-run";
-import {libraryFeedAssets,useStoryboardFeed,type FeedScope} from "./media-feed";
+import {isEndResultAsset,libraryFeedAssets,useStoryboardFeed,type FeedScope} from "./media-feed";
 import {assetCardFacts,assetFormat,assetSize,feedModeLabel,finishWords,generationOf,runCardFacts,upscaleModelName,type FeedCard} from "./feed-facts";
 
 /** The extra facts a file carries when it is the result of an upscale pass. */
@@ -86,6 +87,13 @@ function ProjectRuns({workspace,project,call,canEdit,authorized,version,user,tit
   const linkedRunReady=!!linkedRunId&&runs.some(run=>run.id===linkedRunId);
   useEffect(()=>{if(!linkedRunReady)return;const timer=setTimeout(()=>document.getElementById(`cf-run-${linkedRunId}`)?.scrollIntoView({behavior:matchMedia("(prefers-reduced-motion: reduce)").matches?"instant":"smooth",block:"center"}),80);return()=>clearTimeout(timer);},[linkedRunId,linkedRunReady]);
   const recreateById=useRecreateById(call,workspace.id,setError);
+  /* Out of memory: your newest run of the last half hour that failed because the graphics card was full is
+     offered once more, smaller. One offer at a time; dismissed offers stay away for this browser session. */
+  const rescue=useRescue(),[rescueRun,setRescueRun]=useState<Run>(),[dismissedRescue,setDismissedRescue]=useState<string[]>(()=>{try{return JSON.parse(sessionStorage.getItem("cf-rescue-dismissed")??"[]");}catch{return [];}});
+  const outOfMemory=runs.filter(run=>run.state==="failed"&&run.created_by===user.id&&isOutOfMemory(run.error)&&Date.now()-Date.parse(run.updated_at)<30*60_000&&!dismissedRescue.includes(run.id)).sort((a,b)=>b.updated_at.localeCompare(a.updated_at))[0];
+  useEffect(()=>{if(!outOfMemory){setRescueRun(undefined);return;}if(outOfMemory.invocation){setRescueRun(outOfMemory);return;}let current=true;void call<Run>(workspacePath(workspace.id,`runs/${outOfMemory.id}`)).then(full=>{if(current)setRescueRun(full);}).catch(()=>undefined);return()=>{current=false;};},[outOfMemory?.id]);
+  const rescueOffer=rescueRun&&rescueRun.id===outOfMemory?.id?rescue(rescueRun):undefined;
+  const dismissRescue=(id:string)=>{const next=[...dismissedRescue,id];setDismissedRescue(next);try{sessionStorage.setItem("cf-rescue-dismissed",JSON.stringify(next));}catch{/* only this session forgets it */}};
   async function loadDetail(run:Run){if(detail[run.id]||run.invocation)return;try{const full=await call<Run>(workspacePath(workspace.id,`runs/${run.id}`));setDetail(old=>({...old,[run.id]:full}));
     /* The output file itself, so the full view gets its resolution, format and finish provenance even when the
        library feed has not loaded that asset. */
@@ -202,7 +210,10 @@ function ProjectRuns({workspace,project,call,canEdit,authorized,version,user,tit
       :<MosaicTile key={item.asset!.id} accent={mosaicAccent(index)} aspect={feed.kind==="image"?1:16/9} shape={assetShape(item.asset!)}><ResultTile caption={assetTag(item.asset!)} onRecreate={canEdit?withRun(producerRunId(item.asset!,runs),recreateById):undefined} onDelete={removeAsset?.(item.asset!.id)} viewerCompare={compareUrl(assetCard(item.asset!))} dragAsset={{id:item.asset!.id,url:assetUrl(workspace.id,item.asset!.id),contentType:item.asset!.content_type}}>{feed.kind==="image"?<img loading="lazy" draggable={false} src={assetUrl(workspace.id,item.asset!.id)} alt={item.asset!.name}/>:<LazyVideo controls={false} autoPlay={false} draggable={false} src={assetUrl(workspace.id,item.asset!.id)} label={item.asset!.name}/>}</ResultTile></MosaicTile>)}
   </MosaicGrid>:!examples?<Meta>{feed.kind==="video"?"No videos yet. Every video you make in any video app appears here.":"No images yet. Every image you make in any image app appears here."}</Meta>:null);
 
-  return <Block label="Project runs">{hero?.(latestClip?assetUrl(workspace.id,latestClip.output_ids[0]):undefined)}{error&&<Notice priority={20} consequence title="Runs couldn't be updated" actions={<Button variant="secondary" onClick={()=>setUpdate(v=>v+1)}>Check again</Button>} details={error}>The list shows the last runs it read; nothing was cancelled. Checking again reads them once more.</Notice>}{!shown.length&&!examples&&<Meta>{capabilityId?"No runs yet. Runs of this workflow appear here after you queue one.":"No runs yet. Queue a workflow from Video or Motion Control and it will show up here."}</Meta>}
+  return <Block label="Project runs">{hero?.(latestClip?assetUrl(workspace.id,latestClip.output_ids[0]):undefined)}{error&&<Notice priority={20} consequence title="Runs couldn't be updated" actions={<Button variant="secondary" onClick={()=>setUpdate(v=>v+1)}>Check again</Button>} details={error}>The list shows the last runs it read; nothing was cancelled. Checking again reads them once more.</Notice>}
+    {rescueOffer&&rescueRun&&<Notice priority={30} title="The graphics card ran out of memory" details={rescueRun.error??undefined}
+      actions={<><Button onClick={()=>{rescueOffer.go();dismissRescue(rescueRun.id);}}>Try again smaller</Button><Button variant="ghost" onClick={()=>dismissRescue(rescueRun.id)}>Dismiss</Button></>}>
+      Same inputs and seed, smaller: {rescueOffer.changes.join(", ")}. The tool opens with these settings; nothing runs until you press Generate.</Notice>}{!shown.length&&!examples&&<Meta>{capabilityId?"No runs yet. Runs of this workflow appear here after you queue one.":"No runs yet. Queue a workflow from Video or Motion Control and it will show up here."}</Meta>}
     {motionRun&&<PerformanceMirror driving={assetUrl(workspace.id,motionRun.invocation!.inputs.motion_video)} result={assetUrl(workspace.id,motionRun.output_ids[0])} caption="Latest motion run · driving performance and result side by side"/>}
     {pickedOutputs.length>0&&<Toolbar><Button variant="secondary" onClick={()=>setSheetOpen(true)}>Contact sheet · {pickedOutputs.length}</Button><Button variant="ghost" onClick={()=>{setPicked({});setSheetOpen(false);}}>Clear</Button></Toolbar>}
     {feedAssetError&&<Notice priority={20} consequence title="Library couldn't be updated" details={feedAssetError}>The feed shows the last media it read.</Notice>}
@@ -234,7 +245,7 @@ export function TeamLibrary({screen,workspace,project,call,canEdit,authorized,ve
   async function more(){if(!cursor)return;setBusy(true);try{const page=await call<AssetPage>(workspacePath(workspace.id,`assets?projectId=${project.id}&cursor=${encodeURIComponent(cursor)}`));setAssets(old=>[...old,...page.items]);setCursor(page.nextCursor);}catch(e){setError((e as Error).message);}finally{setBusy(false);}}
   async function removeAsset(){if(!deleting||!canEdit)return;setDeletingId(deleting.id);setDeleteError("");try{await call(workspacePath(workspace.id,`assets/${encodeURIComponent(deleting.id)}`),"DELETE");setAssets(old=>old.filter(asset=>asset.id!==deleting.id));if(viewing?.id===deleting.id)setViewing(null);setDeleting(null);setPendingDeletion(null);setUpdate(v=>v+1);}catch(e){setDeleteError((e as Error).message);}finally{setDeletingId("");}}
   /* A finish output is reachable through its result card and the comparison; the file grid shows the source, not both. */
-  const visibleAssets=newestMediaFirst(assets).filter(asset=>!generationOf(asset)?.upscale&&(showUnavailable||!unavailable.has(asset.id)));
+  const visibleAssets=newestMediaFirst(assets).filter(asset=>isEndResultAsset(asset)&&!generationOf(asset)?.upscale&&(showUnavailable||!unavailable.has(asset.id)));
   const viewableAssets=visibleAssets.filter(asset=>/^(image|video)\//.test(asset.content_type));
   return <><Block label="Project library">{canEdit&&pendingDeletion&&!deleting&&<Notice priority={25} title="Finish removing a file" actions={<Button onClick={()=>{setDeleteError("");setDeleting(pendingDeletion);}}>Finish removal</Button>}>Its stored copy still needs cleanup. Retry to complete the removal.</Notice>}{error&&<Notice priority={20} consequence title="Assets couldn't be read" actions={<Button variant="secondary" disabled={busy} onClick={()=>setUpdate(v=>v+1)}>Check again</Button>} details={error}>The library shows the last list it read; nothing was deleted. Checking again reads the project's files once more.</Notice>}<SectionHeader large title="Library"/>{screen.tab==="runs"?<TeamRuns {...{workspace,project,call,canEdit,authorized,version,user,titles}} linkedRunId={screen.linkedRunId}/>:<>
     

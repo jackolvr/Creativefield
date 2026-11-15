@@ -3,7 +3,7 @@
    the app's four tools (DOC-2153): Create something new, Change what you have, Upscale it, or plan a film. */
 export type StartTaskId =
   | "block" | "effect-clips" | "swap-person" | "copy-moves" | "new-look" | "swap-thing" | "sharpen" | "video" | "film" | "filmstudio"
-  | "picture" | "fix-picture" | "angles" | "character" | "ad" | "remix"
+  | "keyframes" | "picture" | "fix-picture" | "angles" | "character" | "ad" | "remix"
   | "talk" | "model3d";
 export type StartGroup = "Create" | "Change" | "Upscale" | "Film Studio";
 /** What a task needs on this computer, matching the app's own readiness flags. */
@@ -29,6 +29,7 @@ export const START_TASKS: StartTask[] = [
   { id: "sharpen", group: "Upscale", label: "Upscale", text: "Make a clip sharper, bigger or smoother in one run.", href: "#video/enhance", needs: "vfx" },
   { id: "filmstudio", group: "Film Studio", label: "Film Studio", text: "Block a scene with grey shapes, line it up to a reference clip, and keep the camera plan as a score.", href: "#block/film", needs: "always" },
   { id: "film", group: "Film Studio", label: "Short film", text: "Write the shots, make each one, get one video.", href: "#video/storyboard", needs: "film", thumb: "/reels/wan22-flf-14b.png" },
+  { id: "keyframes", group: "Film Studio", label: "Keyframes", text: "Set the key pictures of a shot, then animate between them.", href: "#video/keyframes", needs: "film" },
   { id: "block", group: "Film Studio", label: "Block a shot", text: "Draw a grey layout with a camera move, then make it a shot.", href: "#block", needs: "block" },
 ];
 

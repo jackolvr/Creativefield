@@ -8,7 +8,7 @@ import {START_GROUPS,matchTasks,type StartTask,type StartTaskId} from "./start-t
 
 const ICONS:Record<StartTaskId,ReactNode>={
   remix:<Palette size={20}/>,ad:<Camera size={20}/>,block:<Camera size={20}/>,"effect-clips":<Flame size={20}/>,"swap-person":<UserRoundPen size={20}/>,"copy-moves":<Footprints size={20}/>,"new-look":<Palette size={20}/>,"swap-thing":<Shapes size={20}/>,
-  sharpen:<Maximize2 size={20}/>,video:<Film size={20}/>,film:<Clapperboard size={20}/>,filmstudio:<Clapperboard size={20}/>,picture:<ImagePlus size={20}/>,"fix-picture":<Brush size={20}/>,angles:<RotateCw size={20}/>,
+  sharpen:<Maximize2 size={20}/>,video:<Film size={20}/>,film:<Clapperboard size={20}/>,keyframes:<Film size={20}/>,filmstudio:<Clapperboard size={20}/>,picture:<ImagePlus size={20}/>,"fix-picture":<Brush size={20}/>,angles:<RotateCw size={20}/>,
   character:<UserRound size={20}/>,talk:<MessageCircle size={20}/>,model3d:<Box size={20}/>,
 };
 

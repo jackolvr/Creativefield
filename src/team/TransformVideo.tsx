@@ -8,17 +8,17 @@ import {TeamChoice} from "./TeamChoice";
 import {draftKey} from "./state";
 import {backgroundManifest,restylePresentation,seedBackgroundDraft,selectTransformManifest,TRANSFORM_MODES,transformCandidates,type ChangeChoice,type RestyleKind,type TransformMode} from "./transform-video-state";
 
-const TOOL_LABELS:Record<ChangeChoice,string>={person:"Replace character",motion:"Motion transfer",swap:"Object swap",restyle:"Restyle",reframe:"Reframe"};
+const TOOL_LABELS:Record<ChangeChoice,string>={person:"Replace character",motion:"Motion transfer",swap:"Swap a thing",restyle:"Restyle",reframe:"Reframe"};
 const ICONS:Record<ChangeChoice,ReactNode>={person:<UserRoundPen size={18}/>,motion:<Footprints size={18}/>,swap:<Shapes size={18}/>,restyle:<Palette size={18}/>,reframe:<Maximize2 size={18}/>};
 
 /** "Change a video": the choice of tool sits at the top of the tool's own panel, so this page has exactly the
  *  same layout as Create (panel left, results in the free space). Replace character renders its own panel. */
-export function TransformVideo({manifests,statuses,user,workspace,project,workers,call,canQueue,authorized,onCapability,onQueued,replace,swapThing,onModels,choice=replace?"person":"motion",reframe}:{
+export function TransformVideo({manifests,statuses,user,workspace,project,workers,call,canQueue,authorized,onCapability,onQueued,replace,swapThing,onModels,choice=replace?"person":"motion",reframe,unifiedSwap=false}:{
   manifests:Catalogue;statuses:Record<string,Readiness>;user:User;workspace:Workspace;project:Project;workers:Worker[];call:Call;canQueue:boolean;authorized:boolean;onCapability:(id:string)=>void;onQueued:()=>void;
   /** The place that shows which workflows are set up, so a tool without one is not a dead end. */
   onModels?:()=>void;
   /** The Replace character screen, given the tool choice to show at its top; absent when its workflow is not ready. */
-  replace?:(top:ReactNode)=>ReactNode;/** Swap a thing, when its mask and edit workflows are ready. */swapThing?:(top:ReactNode)=>ReactNode;choice?:ChangeChoice;reframe?:CapabilityManifestV2;
+  replace?:(top:ReactNode)=>ReactNode;/** Swap a thing, when its mask and edit workflows are ready. */swapThing?:(top:ReactNode)=>ReactNode;choice?:ChangeChoice;reframe?:CapabilityManifestV2;/** One Swap tool for a person, a thing and the whole look (DOC-2191). */unifiedSwap?:boolean;
 }){
   const candidates=useMemo(()=>transformCandidates(manifests),[manifests]);
   const mode:TransformMode=choice==="person"||choice==="reframe"?"motion":choice;
@@ -38,7 +38,8 @@ export function TransformVideo({manifests,statuses,user,workspace,project,worker
     setKind(next);
   }
   // The intents are a compact choice, not a wall of model cards; the workflow itself is automatic.
-  const cards:{id:ChangeChoice;label:string}[]=[...(replace?[{id:"person" as const,label:TOOL_LABELS.person}]:[]),...TRANSFORM_MODES.filter(mode=>mode.id==="swap"?!!swapThing||candidates.swap.length>0:candidates[mode.id].length>0).map(m=>({id:m.id,label:TOOL_LABELS[m.id]})),...(reframe?[{id:"reframe" as const,label:TOOL_LABELS.reframe}]:[])];
+  // With the one Swap tool, a person and a new look are swaps: no separate cards (DOC-2191).
+  const cards:{id:ChangeChoice;label:string}[]=[...(replace&&!unifiedSwap?[{id:"person" as const,label:TOOL_LABELS.person}]:[]),...TRANSFORM_MODES.filter(mode=>mode.id==="swap"?!!swapThing||candidates.swap.length>0:mode.id==="restyle"&&unifiedSwap?false:candidates[mode.id].length>0).map(m=>({id:m.id,label:TOOL_LABELS[m.id]})),...(reframe?[{id:"reframe" as const,label:TOOL_LABELS.reframe}]:[])];
   /* A retired tool (for example Wan motion transfer after the HyperFlow switch) keeps old links alive by
      moving them to the first tool this computer can actually run. */
   const availableKey=cards.map(card=>card.id).join(",");

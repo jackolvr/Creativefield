@@ -32,3 +32,10 @@ export function useRecreateById(call:Call,workspaceId:string,onError:(message:st
     catch(error){onError((error as Error).message);}
   };
 }
+
+/** A run that failed because the graphics card ran out of memory: what a smaller retry changes, in plain
+ *  words, and the way into its tool with those settings. Nothing where the run cannot get smaller. The app provides it. */
+export type RescueRun=(run:Run)=>{changes:string[];go:()=>void}|undefined;
+const RescueContext=createContext<RescueRun>(()=>undefined);
+export function RescueProvider({value,children}:{value:RescueRun;children:ReactNode}){return <RescueContext.Provider value={value}>{children}</RescueContext.Provider>;}
+export const useRescue=()=>useContext(RescueContext);

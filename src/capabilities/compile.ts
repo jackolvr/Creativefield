@@ -86,6 +86,8 @@ export function compileLocal(bundle: CapabilityBundle, invocation: Invocation,op
     if (control.type === "select" && !control.options?.includes(value as string | number)) throw new Error(`Unsupported option: ${control.id}`);
     if (binding.transform === "seconds_to_wan_frames") value = secondsToWanFrames(Number(value), manifest.timing!.fps);
     if (binding.transform === "divide_native_scale") value = Number(value) / manifest.nativeScale!;
+    /* Seconds of the source to load: the loader's own frame rate (force_rate) times the seconds, as its frame cap. */
+    if (binding.transform === "seconds_to_loader_frames") value = Math.max(1, Math.round(Number(value) * Number(graph[binding.node].inputs.force_rate || 24)));
     if (!manifest.mediaContract && (control.id === "negative" || control.id === "motion_prompt") && typeof value === "string" && !value.trim()) continue;
     graph[binding.node].inputs[binding.field] = value;
     for (const also of control.alsoBindings ?? []) {

@@ -113,7 +113,7 @@ export type ResolvedScreen=
   | {kind:"storyboard";boardId?:string;target:"local"|"cloud"|"router"}
   | {kind:"keyframes";target:"local"|"router"}
   | {kind:"edit-area";assetId?:string;ready:boolean}
-  | {kind:"transform";choice:ChangeChoice;reframe?:CapabilityManifestV2;/** Replace character inside Change: the OpenJutsu composer, routed by manifest role. */person?:Extract<OpenJutsuSelection,{kind:"composer"}>}
+  | {kind:"transform";choice:ChangeChoice;reframe?:CapabilityManifestV2;/** Swap a thing also covers a person and the whole look here (DOC-2191). */unifiedSwap?:boolean;/** Replace character inside Change: the OpenJutsu composer, routed by manifest role. */person?:Extract<OpenJutsuSelection,{kind:"composer"}>}
   | {kind:"make-real";manifest:CapabilityManifestV2}
   | {kind:"effects";manifest:CapabilityManifestV2}
   | {kind:"trim";assetId?:string}
@@ -236,6 +236,9 @@ function modelAvailability(input:NavigationInput){
 }
 type Models=ReturnType<typeof modelAvailability>;
 
+/** Swap a thing is one tool on this computer (DOC-2191): it routes a person, a thing or the whole look by itself, so
+ *  Replace character and New look are no separate doors there. Guests keep the Router tools. */
+const oneSwapTool=(hosted:boolean,models:Models)=>!hosted&&!!routeTask("video.swap-thing",models.implemented);
 function resolveImageMenu(hosted:boolean,models:Models,router:RouterAvailability):ImageMenuEntry[]{
   const entries:ImageMenuEntry[]=[];
   const create=imageTabTarget("create",models.image);
@@ -274,9 +277,9 @@ function resolveMenu(input:NavigationInput,section:string,models:Models,router:R
   /* One Enhance entry stands for every finishing pack; those packs leave the menu list (their links still open). */
   const finishing=!hosted&&models.ready.some(manifest=>!!finishRoleOf(manifest));
   const video=[
-    ...(!hosted||router("openjutsu")?[videoEntry("openjutsu","OpenJutsu · H3 API","Experimental character/reference video generation through Comfy Router","#openjutsu")]:[]),
+    ...(!hosted||router("openjutsu")?[videoEntry("openjutsu","OpenJutsu","Recast the characters of a clip from reference pictures","#openjutsu")]:[]),
     videoEntry("create","Create Video","Generate video from text or images","#video/create"),
-    ...(input.requirements.trim==="ready"?[videoEntry("trim","Trim Video","Cut an exact decoded frame range locally","#video/trim")]:[]),
+    ...(input.requirements.trim==="ready"?[videoEntry("trim","Edit video","Cut a clip to the exact frame","#video/trim")]:[]),
     ...(hosted&&router("talk")?[videoEntry("talk","Make it talk","Lip sync a video to a voice","#audio")]:[]),
     ...(!hosted||router("video-create")?[videoEntry("storyboard","Storyboard","Plan shots and assemble them into one video","#video/storyboard")]:[]),
     videoEntry("transform","Change a video","Swap a thing or a person, transfer motion or restyle a video","#video/transform"),
@@ -296,6 +299,7 @@ function resolveMenu(input:NavigationInput,section:string,models:Models,router:R
   const upscale=models.implemented.find(manifest=>manifest.id==="nvidia-vfx-upscale");
   const localReady=input.localReady??input.ready;
   // Installed tools can still open their setup when a local worker is offline.
+  const unifiedSwap=oneSwapTool(hosted,models);
   const tools=startTasks(hosted?{
     block:router("restyle"),h3effects:router("effects"),audio:router("talk"),
     replace:router("replace-character")||router("openjutsu"),motion:router("motion-transfer"),edit:router("object-swap"),
@@ -305,11 +309,13 @@ function resolveMenu(input:NavigationInput,section:string,models:Models,router:R
     block:hasSurface("video-effect"),h3effects:input.ready.has(FLASH_EFFECT_CLIPS_ID),
     audio:models.implemented.some(manifest=>manifest.category==="audio"||/chatterbox|lip-?sync|speech/.test(manifest.id)),
     replace:models.implemented.some(manifest=>manifest.id==="scail2-character-replace")||roleCandidates("change","replace-person",models.implemented).length>0,
-    motion:models.motionChoices.length>0,edit:models.implemented.some(isMaskedEdit),
+    motion:models.motionChoices.length>0,edit:models.implemented.some(isMaskedEdit)||!!routeTask("video.swap-thing",models.implemented),
     restyle:hasSurface("video-effect"),video:canMakeVideo,film:canMakeVideo,image:models.image.length>0,vfx:finishing||!!upscale,
     remiximage:models.imageStudios.remix.some(manifest=>localReady.has(manifest.id)),
     adimage:models.imageStudios.marketing.some(manifest=>localReady.has(manifest.id)),
   }).filter(task=>input.filmStudioInstalled||task.href!=="#block/film")
+    .filter(task=>!(unifiedSwap&&(task.id==="swap-person"||task.id==="new-look")))
+    .map(task=>unifiedSwap&&task.id==="swap-thing"?{...task,text:"Say what should change: a person, a thing or the whole look."}:task)
     /* Upscale opens the Upscale tool on this computer; a guest has no local chain, so it takes the Router tool,
        or with Comfy Cloud jobs the cloud upscale workflow in the composer. */
     .map(task=>hosted&&task.id==="sharpen"
@@ -592,7 +598,10 @@ export function resolveScreen(input:NavigationInput){
           : missing("Reframe is not ready here","Check the local HyperFlow Reframe workflow in Models.","#catalogue","Open Models");
         if(change==="upscale"||change==="cutout")return missing("This tool uses Comfy Router","Choose Comfy Router in Run on to open this tool.");
         const wantsPerson=change==="person"||videoMode==="replace";
-        return {kind:"transform",choice:wantsPerson&&person?"person":change&&change!=="person"?change:"motion",reframe,person};
+        // With the one Swap tool, a person or a new look is a swap too: old links open it.
+        const unifiedSwap=oneSwapTool(hosted,models);
+        if(unifiedSwap&&(wantsPerson||change==="restyle"||change==="swap"))return {kind:"transform",choice:"swap",reframe,unifiedSwap:true};
+        return {kind:"transform",choice:wantsPerson&&person?"person":change&&change!=="person"?change:"motion",reframe,person,unifiedSwap};
       }
       const workflow=createVideo?createWorkflow:selectedVideo;
       return {kind:"video",mode:videoMode,workflowId:workflow?.id,change};

@@ -41,7 +41,7 @@ const firstScore = (): {text: string; score: StageScore; warnings: YamlDiagnosti
   return {text: DEFAULT_SCORE, score: parsed.score, warnings: parsed.diagnostics};
 };
 
-export function FilmStudio(props: FilmStudioProps) {
+export function LegacyFilmStudio(props: FilmStudioProps) {
   const initial = useRef<{text: string; score: StageScore; warnings: YamlDiagnostic[]} | null>(null);
   if (!initial.current) initial.current = firstScore();
   const boot = initial.current;
