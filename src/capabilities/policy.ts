@@ -106,6 +106,10 @@ export const APPROVED_LOCAL_CLASSES = new Set([
   "MiniMaxH3SourceTimeline", "MiniMaxH3ChainLoopStart", "MiniMaxH3ChainCurrent", "H3SourceSlice", "H3PeopleMask", "H3GreyMannequins", "GrowMaskWithBlur",
   "H3ClipShots", "H3FillShots", "MiniMaxH3ContexMaskGridPreview", "MiniMaxH3FantasticVideoEditLatent", "MiniMaxH3ContexMaskedTarget", "MiniMaxH3ChainContext",
   "MiniMaxH3LoopTrim", "MiniMaxH3ChainSegmentSave", "MiniMaxH3ChainReview", "MiniMaxH3ChainLoopEnd", "MiniMaxH3ChainAssemble",
+  // LTX 2.3 audio+video (native-workflows/ltx23-t2v, ltx23-i2v): ComfyUI core nodes (comfy_extras/nodes_lt.py and
+  // nodes_lt_audio.py), no custom pack. Graph taken from the pipeline-ia-terraform production worker.
+  "LTXAVTextEncoderLoader", "LTXVAudioVAELoader", "LTXVAudioVAEDecode", "LTXVConditioning", "EmptyLTXVLatentVideo", "LTXVEmptyLatentAudio",
+  "LTXVConcatAVLatent", "LTXVSeparateAVLatent", "LTXVPreprocess", "LTXVImgToVideoInplace",
   // Core audio/mask operations and the VideoHelperSuite frame selector.
   "AudioAdjustVolume", "MaskComposite", "VHS_SelectEveryNthImage",
   // Local single-speaker audio-driven animation; canonical bounded WAV inputs.

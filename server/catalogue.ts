@@ -101,14 +101,24 @@ export async function loadServerCatalogue(options: CatalogueRoots = {}) {
   return catalogue.filter(bundle=>!invalid.has(bundle));
 }
 
+/** Operator exceptions to the HyperFlow-only video rule: ids or `*` globs from COMFYFIELD_KEEP_VIDEO_WORKFLOWS,
+ *  comma separated (for example `ltx23-*,wan22-i2v-14b`). Empty or unset keeps the rule as it is. */
+export function keptVideoWorkflowPatterns(env: Record<string, string | undefined> = process.env): RegExp[] {
+  return (env.COMFYFIELD_KEEP_VIDEO_WORKFLOWS ?? "").split(",").map(item => item.trim()).filter(Boolean)
+    .map(item => new RegExp(`^${item.split("*").map(part => part.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join(".*")}$`));
+}
+
 /** Video model workflows must run on HyperFlow H3 Flash. The local H3 and Wan families are retired:
- *  every video-producing model workflow that is not a HyperFlow variant never reaches the app.
+ *  every video-producing model workflow that is not a HyperFlow variant never reaches the app,
+ *  unless the operator lists it in COMFYFIELD_KEEP_VIDEO_WORKFLOWS.
  *  Finishing/utility packs (category enhance, 3d) stay: upscale, trim, join, interpolation. */
-export function retireNonHyperflowVideoModels(bundles: CapabilityBundle[]): CapabilityBundle[] {
+export function retireNonHyperflowVideoModels(bundles: CapabilityBundle[], env: Record<string, string | undefined> = process.env): CapabilityBundle[] {
+  const kept = keptVideoWorkflowPatterns(env);
   return bundles.filter(bundle => {
     const manifest = bundle.manifest;
     if (!manifest.outputs.some(output => output.type === "video")) return true;
     if (manifest.category === "enhance" || manifest.category === "3d") return true;
+    if (kept.some(pattern => pattern.test(manifest.id))) return true;
     const routes = manifest.routes ?? [];
     return /hyperflow/i.test(manifest.title) || routes.some(route => (route.requirements ?? []).some(requirement => requirement.kind === "node" && /hyperflow/i.test(requirement.name)));
   });

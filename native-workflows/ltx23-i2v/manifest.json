@@ -1,0 +1,305 @@
+{
+  "schemaVersion": 2,
+  "id": "ltx23-i2v",
+  "version": "0.1.0",
+  "title": "LTX 2.3 image to video",
+  "category": "i2v",
+  "description": "Bring a picture to life as a clip with sound, made by LTX 2.3 (distilled, 8 steps). The picture is the first frame. 5 seconds by default, up to 10.",
+  "inputs": [
+    {
+      "id": "start_image",
+      "label": "First frame",
+      "type": "image",
+      "required": true,
+      "binding": {
+        "node": "9",
+        "field": "image"
+      }
+    }
+  ],
+  "outputs": [
+    {
+      "id": "video",
+      "label": "Clip",
+      "type": "video",
+      "required": true
+    }
+  ],
+  "controls": [
+    {
+      "id": "prompt",
+      "label": "Prompt",
+      "type": "string",
+      "default": "",
+      "binding": {
+        "node": "5",
+        "field": "text"
+      }
+    },
+    {
+      "id": "landscape",
+      "label": "Landscape (off = portrait 704x1280, on = 1280x704)",
+      "type": "boolean",
+      "default": false,
+      "binding": {
+        "node": "sz:landscape",
+        "field": "value"
+      }
+    },
+    {
+      "id": "length",
+      "label": "Length (seconds)",
+      "type": "number",
+      "min": 1,
+      "max": 6,
+      "step": 1,
+      "default": 5,
+      "binding": {
+        "node": "len:sec",
+        "field": "value"
+      }
+    },
+    {
+      "id": "seed",
+      "label": "Seed",
+      "type": "integer",
+      "min": 0,
+      "max": 2147483647,
+      "default": 20261116,
+      "binding": {
+        "node": "16",
+        "field": "noise_seed"
+      }
+    }
+  ],
+  "presets": [],
+  "timing": {
+    "fps": 24,
+    "minSeconds": 1,
+    "maxSeconds": 10,
+    "sourceTimed": false
+  },
+  "routes": [
+    {
+      "id": "local",
+      "execution": "local_comfy",
+      "provider": "comfy-local",
+      "upstreamProviders": [],
+      "implementation": "implemented",
+      "workflowId": "ltx23-i2v",
+      "requirements": [
+        {
+          "id": "node:CFGGuider",
+          "kind": "node",
+          "name": "CFGGuider",
+          "instructions": "Use ComfyUI 0.45 or newer (these are ComfyUI core nodes)."
+        },
+        {
+          "id": "node:CLIPTextEncode",
+          "kind": "node",
+          "name": "CLIPTextEncode",
+          "instructions": "Use ComfyUI 0.45 or newer (these are ComfyUI core nodes)."
+        },
+        {
+          "id": "node:CheckpointLoaderSimple",
+          "kind": "node",
+          "name": "CheckpointLoaderSimple",
+          "instructions": "Use ComfyUI 0.45 or newer (these are ComfyUI core nodes)."
+        },
+        {
+          "id": "node:ComfyMathExpression",
+          "kind": "node",
+          "name": "ComfyMathExpression",
+          "instructions": "Use ComfyUI 0.45 or newer (these are ComfyUI core nodes)."
+        },
+        {
+          "id": "node:ComfySwitchNode",
+          "kind": "node",
+          "name": "ComfySwitchNode",
+          "instructions": "Use ComfyUI 0.45 or newer (these are ComfyUI core nodes)."
+        },
+        {
+          "id": "node:CreateVideo",
+          "kind": "node",
+          "name": "CreateVideo",
+          "instructions": "Use ComfyUI 0.45 or newer (these are ComfyUI core nodes)."
+        },
+        {
+          "id": "node:EmptyLTXVLatentVideo",
+          "kind": "node",
+          "name": "EmptyLTXVLatentVideo",
+          "instructions": "Use ComfyUI 0.45 or newer (these are ComfyUI core nodes)."
+        },
+        {
+          "id": "node:ImageScale",
+          "kind": "node",
+          "name": "ImageScale",
+          "instructions": "Use ComfyUI 0.45 or newer (these are ComfyUI core nodes)."
+        },
+        {
+          "id": "node:KSamplerSelect",
+          "kind": "node",
+          "name": "KSamplerSelect",
+          "instructions": "Use ComfyUI 0.45 or newer (these are ComfyUI core nodes)."
+        },
+        {
+          "id": "node:LTXAVTextEncoderLoader",
+          "kind": "node",
+          "name": "LTXAVTextEncoderLoader",
+          "instructions": "Use ComfyUI 0.45 or newer (these are ComfyUI core nodes)."
+        },
+        {
+          "id": "node:LTXVAudioVAEDecode",
+          "kind": "node",
+          "name": "LTXVAudioVAEDecode",
+          "instructions": "Use ComfyUI 0.45 or newer (these are ComfyUI core nodes)."
+        },
+        {
+          "id": "node:LTXVAudioVAELoader",
+          "kind": "node",
+          "name": "LTXVAudioVAELoader",
+          "instructions": "Use ComfyUI 0.45 or newer (these are ComfyUI core nodes)."
+        },
+        {
+          "id": "node:LTXVConcatAVLatent",
+          "kind": "node",
+          "name": "LTXVConcatAVLatent",
+          "instructions": "Use ComfyUI 0.45 or newer (these are ComfyUI core nodes)."
+        },
+        {
+          "id": "node:LTXVConditioning",
+          "kind": "node",
+          "name": "LTXVConditioning",
+          "instructions": "Use ComfyUI 0.45 or newer (these are ComfyUI core nodes)."
+        },
+        {
+          "id": "node:LTXVEmptyLatentAudio",
+          "kind": "node",
+          "name": "LTXVEmptyLatentAudio",
+          "instructions": "Use ComfyUI 0.45 or newer (these are ComfyUI core nodes)."
+        },
+        {
+          "id": "node:LTXVImgToVideoInplace",
+          "kind": "node",
+          "name": "LTXVImgToVideoInplace",
+          "instructions": "Use ComfyUI 0.45 or newer (these are ComfyUI core nodes)."
+        },
+        {
+          "id": "node:LTXVPreprocess",
+          "kind": "node",
+          "name": "LTXVPreprocess",
+          "instructions": "Use ComfyUI 0.45 or newer (these are ComfyUI core nodes)."
+        },
+        {
+          "id": "node:LTXVSeparateAVLatent",
+          "kind": "node",
+          "name": "LTXVSeparateAVLatent",
+          "instructions": "Use ComfyUI 0.45 or newer (these are ComfyUI core nodes)."
+        },
+        {
+          "id": "node:LoadImage",
+          "kind": "node",
+          "name": "LoadImage",
+          "instructions": "Use ComfyUI 0.45 or newer (these are ComfyUI core nodes)."
+        },
+        {
+          "id": "node:LoraLoaderModelOnly",
+          "kind": "node",
+          "name": "LoraLoaderModelOnly",
+          "instructions": "Use ComfyUI 0.45 or newer (these are ComfyUI core nodes)."
+        },
+        {
+          "id": "node:ManualSigmas",
+          "kind": "node",
+          "name": "ManualSigmas",
+          "instructions": "Use ComfyUI 0.45 or newer (these are ComfyUI core nodes)."
+        },
+        {
+          "id": "node:PrimitiveBoolean",
+          "kind": "node",
+          "name": "PrimitiveBoolean",
+          "instructions": "Use ComfyUI 0.45 or newer (these are ComfyUI core nodes)."
+        },
+        {
+          "id": "node:PrimitiveFloat",
+          "kind": "node",
+          "name": "PrimitiveFloat",
+          "instructions": "Use ComfyUI 0.45 or newer (these are ComfyUI core nodes)."
+        },
+        {
+          "id": "node:PrimitiveInt",
+          "kind": "node",
+          "name": "PrimitiveInt",
+          "instructions": "Use ComfyUI 0.45 or newer (these are ComfyUI core nodes)."
+        },
+        {
+          "id": "node:RandomNoise",
+          "kind": "node",
+          "name": "RandomNoise",
+          "instructions": "Use ComfyUI 0.45 or newer (these are ComfyUI core nodes)."
+        },
+        {
+          "id": "node:SamplerCustomAdvanced",
+          "kind": "node",
+          "name": "SamplerCustomAdvanced",
+          "instructions": "Use ComfyUI 0.45 or newer (these are ComfyUI core nodes)."
+        },
+        {
+          "id": "node:SaveVideo",
+          "kind": "node",
+          "name": "SaveVideo",
+          "instructions": "Use ComfyUI 0.45 or newer (these are ComfyUI core nodes)."
+        },
+        {
+          "id": "node:VAEDecodeTiled",
+          "kind": "node",
+          "name": "VAEDecodeTiled",
+          "instructions": "Use ComfyUI 0.45 or newer (these are ComfyUI core nodes)."
+        },
+        {
+          "id": "model:ltx23-checkpoint",
+          "kind": "model",
+          "name": "pinkcherry_v18_fp8scaled.safetensors",
+          "instructions": "Install pinkcherry_v18_fp8scaled.safetensors into ComfyUI models/checkpoints.",
+          "location": "checkpoints"
+        },
+        {
+          "id": "model:ltx23-gemma",
+          "kind": "model",
+          "name": "gemma_heretic_fp8.safetensors",
+          "location": "text_encoders",
+          "instructions": "Install gemma_heretic_fp8.safetensors into ComfyUI models/text_encoders."
+        },
+        {
+          "id": "model:ltx23-distilled-lora",
+          "kind": "model",
+          "name": "ltx23_distilled_lora.safetensors",
+          "location": "loras",
+          "instructions": "Install ltx23_distilled_lora.safetensors into ComfyUI models/loras."
+        }
+      ],
+      "evidence": [
+        "2026-11-16: graph taken from the ltx_graph builder of the pipeline-ia-terraform worker (PinkCherry v1.8 full checkpoint, Gemma heretic fp8 text encoder, distilled LoRA 0.6, 8 manual sigmas, euler, cfg 1), which runs on the same ComfyUI v0.45.3 server. Changes: example prompt emptied, lossless tail-frame save removed, seconds control feeding 8n+1 frames at 24 fps, portrait/landscape switch (704x1280 or 1280x704). Not run from this repository."
+      ]
+    }
+  ],
+  "coverage": {
+    "local": "implemented",
+    "hosted": "planned"
+  },
+  "licenses": {
+    "software": "Graph: from the pipeline-ia-terraform worker. ComfyUI core: GPL-3.0. ComfyUI-LTXVideo node pack: license as published in its repository, not reviewed here.",
+    "weights": [
+      {
+        "name": "LTX 2.3 PinkCherry v1.8 fp8 checkpoint, Gemma heretic fp8 text encoder, LTX 2.3 distilled LoRA",
+        "license": "Licenses as published with each file by its author; not reviewed here. The checkpoint is a community fine-tune of LTX 2.3."
+      }
+    ]
+  },
+  "sources": [],
+  "tickets": [],
+  "audioPolicies": [
+    "mute",
+    "replace"
+  ]
+}
