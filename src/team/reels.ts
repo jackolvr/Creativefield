@@ -34,8 +34,8 @@ const REELS = {
 } as const;
 
 /** The placeholder clips that take turns behind heroes (Midjourney set). */
-/* The two newest Creative Field loops (hoverbike, samurai) join the hero rotation in front of the earlier reels. */
-export const POOL_VIDEOS = ["/examples/tiles/video.mp4", "/examples/tiles/swap-person.mp4", ...Array.from({ length: 8 }, (_, i) => `/reels/mj-0${i}.mp4`)];
+/* The hero rotation is the Creative Field loops of the All tools tiles (CONVE-1747); the earlier reels are gone from it. */
+export const POOL_VIDEOS = ["video", "film", "effect-clips", "swap-person", "ad", "block", "talk", "keyframes", "filmstudio", "model3d"].map((id) => `/examples/tiles/${id}.mp4`);
 
 /** Newest finished video examples appear first in the shared feed and Library. */
 export const FEATURED_VIDEO_EXAMPLES = ["/examples/promo/beach-portrait.mp4"];
@@ -61,7 +61,7 @@ export const LOW_PRIORITY_EXAMPLES:readonly string[] = [
     Midjourney loops, then the early test clips. Available in the Library and media picker. */
 export const LIBRARY_EXAMPLE_VIDEOS = [...FEATURED_VIDEO_EXAMPLES,...SQUAREHEAD_EXAMPLE_VIDEOS,...OPENJUTSU_SHOWCASE.map(item=>item.result),
   ...["reshoot","effects-lab","copy-moves","film-studio","block-shot","swap-thing","new-look","video-studio","ad-studio"].map(name=>`/examples/promo/${name}.mp4`),
-  ...POOL_VIDEOS,...LOW_PRIORITY_EXAMPLES];
+  ...POOL_VIDEOS,...Array.from({ length: 8 }, (_, i) => `/reels/mj-0${i}.mp4`),...LOW_PRIORITY_EXAMPLES];
 
 /** These clips illustrate each area; they are not claims that the named workflow made the clip. */
 export function promoReelForCapability(ids?:string|string[]){

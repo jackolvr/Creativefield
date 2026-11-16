@@ -1028,6 +1028,9 @@ export default function Showcase() {
         <Hero title="Turn one video into many" text="Take the motion and recast it with your characters, places and products." media={<video src="/reels/wan22-i2v-5b.mp4" muted loop autoPlay playsInline aria-hidden />} />
       </Section>
 
+      <Section title="Hero spotlight (All tools)">
+        <Hero spotlight accent="make?" title="What do you want to make?" text="The loop stands sharp on the right and melts into the page." media={<RotatingVideo srcs={["/reels/mj-02.mp4"]} />}><SearchField label="Search tools" value="" onChange={() => {}} placeholder="Describe it…" /></Hero>
+      </Section>
       <Section title="Hero stage and rotating video">
         <Hero stage accent="many" title="Turn one video into many" text="The loop fills the band, drifts slowly, and the clips take turns." media={<RotatingVideo srcs={["/reels/mj-02.mp4", "/reels/mj-01.mp4", "/reels/mj-03.mp4"]} />} />
       </Section>

@@ -10,7 +10,7 @@ export type Medium = "video" | "image";
 /** Image menu entries that are screens, by row: making a picture is Create, an upscale is Upscale, the rest change a picture. */
 export const imageEntryTool = (id:string):"create"|"change"|"upscale" => id==="create-image"||id==="router-create" ? "create" : /upscale/.test(id) ? "upscale" : "change";
 
-type TaskLike = {id:string;label:string;text:string;href:string;group:string};
+type TaskLike = {id:string;label:string;text:string;href:string;group:string;video?:string};
 const ROWS: Record<Medium,{id:string;title:string;text:string}[]> = {
   video: [{id:"create",title:"Create",text:"make a new clip"},{id:"change",title:"Change",text:"change a clip you have"},{id:"upscale",title:"Upscale",text:"sharper, bigger or smoother"},{id:"film-studio",title:"Film Studio",text:"plan the shots, make one film"}],
   image: [{id:"create",title:"Create",text:"make a new picture"},{id:"change",title:"Change",text:"change a picture you have"},{id:"upscale",title:"Upscale",text:"bigger and sharper"},{id:"fotofield",title:"FotoField",text:"layers, masks and AI edits"}],
@@ -47,7 +47,9 @@ export function mediumMenus(tasks:readonly TaskLike[],openTask:(id:string)=>void
       const own = entries.filter(entry=>entry.medium===medium&&entry.row===row.id);
       // groupMenu gives each tile its preview clip; the tool is the row, in the tasks' own order.
       const order = own.map(entry=>entry.id);
-      const tiles = own.length ? groupMenu(medium,own).flatMap(group=>group.tiles).sort((a,b)=>order.indexOf(a.id)-order.indexOf(b.id)) : [];
+      const tiles = own.length ? groupMenu(medium,own).flatMap(group=>group.tiles).sort((a,b)=>order.indexOf(a.id)-order.indexOf(b.id))
+        /* A tool with its own All tools loop shows that same loop in the menu, so both places tell one story. */
+        .map(tile=>{const task=tasks.find(t=>t.id===tile.id);return task?.video?{...tile,clip:task.video,poster:task.video.replace(/\.mp4$/,".webp")}:tile;}) : [];
       return tiles.length ? [{id:`${medium}:${row.id}`,title:row.title,text:row.text,tiles}] : [];
     });
   }

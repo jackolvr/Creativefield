@@ -23,7 +23,10 @@
   "fix-picture": "promo/photofield.webp",
   "effect-clips": "tiles/effect-clips.webp",
   "block": "tiles/block.webp",
-  "remix": "tiles/remix.webp",
+  "remix": {
+    "image": "tiles/remix.webp",
+    "before": "tiles/remix-before.webp"
+  },
   "ad": "tiles/ad.webp",
   "filmstudio": "tiles/filmstudio.webp",
   "keyframes": "tiles/keyframes.webp"

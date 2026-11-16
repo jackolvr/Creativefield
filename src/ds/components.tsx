@@ -4668,9 +4668,23 @@ export function CodeLine({ children, copyLabel = "Copy" }: { children: string; /
 
 /* Hero: the encouraging title over a results pane, with the tool's own clip on the right. Behind the clip, three
    soft accent glows drift slowly (the one place a glow is not an action, rule 55). Without media it is title and text only. */
-export function Hero({ title, text, media, stage, accent, aside, children, compact }: { /** A stage hero at half height with its title on one line, once the tool has its input and needs the room (rule 55). */ compact?: boolean; /** Controls under the words of a plain hero, such as the All tools start field. */ children?: ReactNode; /** A card at the right end of a stage hero, above the loop. */ aside?: ReactNode; title: string; text?: string; media?: ReactNode; /** The loop fills the whole band behind the words, slowly drifting; the title rises word by word. */ stage?: boolean; /** One word of the title drawn in the brand yellow. */ accent?: string }) {
+export function Hero({ title, text, media, stage, spotlight, accent, aside, children, compact }: { /** The All tools opening: the loop fills the band under a flat dark scrim and light grain; a large centred title with one yellow word, the start field under it (rule 64). */ spotlight?: boolean; /** A stage hero at half height with its title on one line, once the tool has its input and needs the room (rule 55). */ compact?: boolean; /** Controls under the words of a plain hero, such as the All tools start field. */ children?: ReactNode; /** A card at the right end of a stage hero, above the loop. */ aside?: ReactNode; title: string; text?: string; media?: ReactNode; /** The loop fills the whole band behind the words, slowly drifting; the title rises word by word. */ stage?: boolean; /** One word of the title drawn in the brand yellow. */ accent?: string }) {
   const words = title.split(" ");
-  const heading = stage ? words.map((word, i) => <span key={i} className={cx("ds-hero__word", accent && word === accent && "ds-hero__word--accent")} style={{ animationDelay: `${i * 90}ms` }}>{word}</span>) : title;
+  const heading = stage || spotlight ? words.map((word, i) => <span key={i} className={cx("ds-hero__word", accent && word === accent && "ds-hero__word--accent")} style={{ animationDelay: `${i * 90}ms` }}>{word}</span>) : title;
+  if (spotlight) return (
+    <section className="ds-hero ds-hero--spotlight">
+      <div className="ds-hero__bg" aria-hidden>
+        {media}
+        <span className="ds-hero__scrim" />
+        <span className="ds-hero__grain" />
+      </div>
+      <div className="ds-hero__copy">
+        <h2 className="ds-hero__title">{heading}</h2>
+        {text && <p className="ds-hero__text">{text}</p>}
+        {children && <div className="ds-hero__actions">{children}</div>}
+      </div>
+    </section>
+  );
   if (stage) return (
     <section className={cx("ds-hero ds-hero--stage", compact && "ds-hero--compact")}>
       <div className="ds-hero__bg" aria-hidden>

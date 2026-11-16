@@ -865,7 +865,7 @@
 /* A tool tile (All tools): the name is one text step larger and sits clear of the art; its line stays L3
    and stops after four lines instead of stretching the tile (rule 25). */
 .ds-preset--tool { gap: var(--space-2); }
-.ds-preset--tool .ds-preset__label { padding: var(--space-1) var(--space-1) 0; font-size: var(--text-sm); line-height: var(--lh-sm); }
+.ds-preset--tool .ds-preset__label { padding: var(--space-1) var(--space-1) 0; font-family: var(--font-display); font-size: var(--display-xs); line-height: var(--lh-display-xs); font-weight: var(--weight-bold); letter-spacing: var(--tracking-display); }
 .ds-preset--tool .ds-preset__hint { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; padding: 0 var(--space-1) var(--space-1); }
 
 /* â”€â”€ Panel sections and picker rows â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
@@ -2399,3 +2399,22 @@ button.ds-castcard__main { cursor: pointer; }
 .ds-mediapicker { display: flex; flex-direction: column; gap: var(--gap-block); }
 /* The upload tile is a square like the pictures beside it. */
 .ds-mediapicker .ds-upload--tile { aspect-ratio: 1; min-height: 0; }
+
+/* Spotlight hero (All tools, rule 64): the loop fills the whole band, one flat dark scrim on it makes the words pop,
+   light film grain on top; title, line and start field sit centred. No gradients, no glows. */
+.ds-hero--spotlight { position: relative; isolation: isolate; display: flex; align-items: center; justify-content: center; min-height: calc(460px * var(--ui-scale)); padding: var(--space-8); border-radius: var(--radius-2xl); overflow: hidden; background: var(--surface-page); }
+.ds-hero--spotlight .ds-hero__bg { position: absolute; inset: 0; z-index: 0; overflow: hidden; }
+.ds-hero--spotlight .ds-hero__bg > video, .ds-hero--spotlight .ds-hero__bg > img { filter: none; position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; animation: ds-hero-kenburns 32s ease-in-out infinite alternate; }
+.ds-hero__scrim { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.5); }
+.ds-hero--spotlight .ds-hero__copy { position: relative; z-index: 1; margin: 0 auto; width: 100%; align-items: center; text-align: center; gap: var(--space-4); max-width: calc(760px * var(--ui-scale)); }
+.ds-hero--spotlight .ds-hero__title { font-size: clamp(2.6rem, 5.6vw, 5.2rem); line-height: 1; letter-spacing: -0.035em; }
+.ds-hero--spotlight .ds-hero__text { font-size: var(--text-md); line-height: var(--lh-md); color: var(--text-primary); opacity: 0.88; max-width: calc(520px * var(--ui-scale)); }
+.ds-hero--spotlight .ds-hero__actions { margin-top: var(--space-2); width: min(100%, calc(520px * var(--ui-scale))); }
+/* Light film grain over the loop: a tiny SVG noise tile, shifted a few pixels per frame so it lives like film. */
+.ds-hero__grain { position: absolute; inset: -20px; opacity: 0.16; mix-blend-mode: overlay; pointer-events: none; background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>"); animation: ds-hero-grain 0.9s steps(6) infinite; }
+@keyframes ds-hero-grain { 0% { transform: translate(0, 0); } 33% { transform: translate(-7px, 4px); } 66% { transform: translate(5px, -6px); } 100% { transform: translate(-3px, 8px); } }
+@media (prefers-reduced-motion: reduce) { .ds-hero__grain { animation: none; } }
+.ds-hero--spotlight .ds-hero__copy { position: relative; z-index: 1; gap: var(--space-4); max-width: calc(620px * var(--ui-scale)); padding-top: var(--space-6); }
+.ds-hero--spotlight .ds-hero__title { font-size: clamp(2.6rem, 5.4vw, 5rem); line-height: 0.98; letter-spacing: -0.035em; text-shadow: 0 2px 32px color-mix(in srgb, var(--surface-page) 90%, transparent); }
+.ds-hero--spotlight .ds-hero__text { font-size: var(--text-md); line-height: var(--lh-md); color: var(--text-primary); opacity: 0.8; }
+.ds-hero--spotlight .ds-hero__actions { margin-top: var(--space-2); max-width: calc(520px * var(--ui-scale)); }

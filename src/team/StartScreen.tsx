@@ -24,7 +24,7 @@ export function StartScreen({tools,onOpen,hosted=false}:{tools:StartTask[];onOpe
   useEffect(()=>{let current=true;fetch("/examples/index.json").then(r=>r.ok?r.json():{}).then(map=>{if(current&&map&&typeof map==="object")setExamples(map as Record<string,string|{image:string;before?:string}>);}).catch(()=>{});return()=>{current=false;};},[]);
   const shown=matchTasks(tools,query);
   return <div className="cf-start">
-    <Hero title="What do you want to make?" text={hosted?"Free and open source, powered by ComfyUI. Renders run on your own Comfy account.":"Free and open source, powered by ComfyUI. Nothing leaves your computer."} media={<RotatingVideo srcs={POOL_VIDEOS.slice(LOAD_TURN%POOL_VIDEOS.length).concat(POOL_VIDEOS.slice(0,LOAD_TURN%POOL_VIDEOS.length))}/>}>
+    <Hero spotlight accent="make?" title="What do you want to make?" text={hosted?"Free and open source, powered by ComfyUI. Renders run on your own Comfy account.":"Free and open source, powered by ComfyUI. Nothing leaves your computer."} media={<RotatingVideo srcs={POOL_VIDEOS.slice(LOAD_TURN%POOL_VIDEOS.length).concat(POOL_VIDEOS.slice(0,LOAD_TURN%POOL_VIDEOS.length))}/>}>
       <SearchField label="Search tools" value={query} onChange={setQuery} placeholder="Describe it: a video of my dog, a product shot…"/>
     </Hero>
     <Toolbar>
