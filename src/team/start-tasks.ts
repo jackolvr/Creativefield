@@ -3,7 +3,7 @@
    the app's four tools (DOC-2153): Create something new, Change what you have, Upscale it, or plan a film. */
 export type StartTaskId =
   | "block" | "effect-clips" | "swap-person" | "copy-moves" | "new-look" | "swap-thing" | "sharpen" | "video" | "film" | "filmstudio"
-  | "keyframes" | "picture" | "fix-picture" | "angles" | "character" | "ad" | "remix"
+  | "keyframes" | "picture" | "fix-picture" | "angles" | "character" | "ad"
   | "talk" | "model3d";
 export type StartGroup = "Create" | "Change" | "Upscale" | "Film Studio";
 /** What a task needs on this computer, matching the app's own readiness flags. */
@@ -25,7 +25,6 @@ export const START_TASKS: StartTask[] = [
   { id: "new-look", group: "Change", label: "New look", text: "Same video as a cartoon, a painting or at night.", href: "#video/transform/restyle", needs: "restyle", thumb: "/reels/feature-effects.png" },
   { id: "copy-moves", group: "Change", label: "Copy moves", text: "Make your character dance or move like someone in a video.", href: "#motion", needs: "motion" },
   { video: "/examples/tiles/menu-angles.mp4", id: "angles", group: "Change", label: "Turn it around", text: "Turn a photo of an object to new angles.", href: "#image", needs: "image", thumb: "/reels/wan22-i2v-14b.png" },
-  { video: "/examples/tiles/menu-remix.mp4", id: "remix", group: "Change", label: "Remix Studio", text: "Make variations of a picture with different looks, products or scenes.", href: "#remix", needs: "remiximage" },
   { id: "sharpen", group: "Upscale", label: "Upscale", text: "Make a clip sharper, bigger or smoother in one run.", href: "#video/enhance", needs: "vfx" },
   { video: "/examples/tiles/filmstudio.mp4", id: "filmstudio", group: "Film Studio", label: "Film Studio", text: "Block a scene with grey shapes, line it up to a reference clip, and keep the camera plan as a score.", href: "#block/film", needs: "always" },
   { video: "/examples/tiles/film.mp4", id: "film", group: "Film Studio", label: "Short film", text: "Write the shots, make each one, get one video.", href: "#video/storyboard", needs: "film", thumb: "/reels/wan22-flf-14b.png" },

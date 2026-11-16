@@ -20,7 +20,7 @@ const ROWS: Record<Medium,{id:string;title:string;text:string}[]> = {
 const T="/examples/tiles/";
 const MENU_MEDIA:Record<string,[string,string]>={
   "Upscale":["menu-upscale","menu-upscale"],"Edit video":["menu-edit","menu-edit"],
-  "Make a picture":["menu-picture","picture"],"Remix Studio":["menu-remix","remix"],"My characters":["menu-character","character"],
+  "Make a picture":["menu-picture","picture"],"My characters":["menu-character","character"],
   "Camera angles":["menu-angles","angles"],"Relight":["menu-relight","new-look-before"],
 };
 const TASK_ROW: Record<string,string> = {Create:"create",Change:"change",Upscale:"upscale","Film Studio":"film-studio"};

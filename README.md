@@ -20,6 +20,19 @@
 
 ## What is new
 
+| All tools opens on a moving hero | Every tile and menu entry plays its own loop |
+|---|---|
+| ![All tools: the Creative Field loops fill the hero under a dark scrim, the title sits centred](docs/screens/creativefield/features/all-tools-hero.webp) | ![Nine tile loops: hoverbike, short film cuts, keyframes, grey blockout to real, ember storm, radio booth, sneaker splash, orbital greenhouse, day to night](docs/screens/creativefield/features/moving-tiles.webp) |
+| **The Image menu** | **The Video menu** |
+| ![Image menu: Make a picture, Ad Studio, My characters, Camera angles, Relight, FotoField](docs/screens/creativefield/features/image-menu.webp) | ![Video menu: Create, Change, Upscale and Film Studio rows, each with a Creative Field loop](docs/screens/creativefield/features/video-menu.webp) |
+
+- **A hero that moves.** All tools opens on the Creative Field loops, full width under a dark scrim with light film grain, the question in large type with the start field under it.
+- **Tiles that move.** Make a video, Effect clips, Ad Studio, Make it talk, 3D models, Make a picture, My characters, Turn it around and all of Film Studio play short loops made with HyperFlow H3 Flash on this computer. Short film cuts from wide to close-up, Keyframes shows its two key pictures with a marker running between them, Block a shot wipes from the grey blockout to the real scene. Tool names are bold and larger.
+- **Menus that match.** The Video and Image dropdowns play the same loops as the tiles; Upscale wipes from a pixelated picture to the sharp one, Edit video shows its trim timeline and crop frame, Relight turns a street from day to night.
+- **One tool for changing a thing.** Remix Studio is gone from the menus; Swap a thing does that job.
+
+#### Earlier
+
 | Quick select finds the parts by itself | Compare zooms both pictures together |
 |---|---|
 | ![Quick select: the picture shimmers while it is analysed, outlines appear, one click selects hair, face, jacket](docs/screens/creativefield/features/quick-select.webp) | ![Compare: before and after side by side, the mouse wheel zooms both](docs/screens/creativefield/features/compare-zoom.webp) |
@@ -62,12 +75,6 @@ These loops are the previews the menus play; they show what kind of change a fun
 Made for the [#OpenSourceHiggsfield](https://comfy.org/open-source-higgsfield/) challenge.
 
 ## Why CreativeField
-
-CreativeField is a welcoming place to turn a small idea into something you can see, hear and share. Start with a few words or a picture, explore a result, then take it further: make a video, adjust an image in FotoField, or try another angle. Your work stays together in the project library, ready when inspiration strikes again.
-
-**Made for a comfortable creative flow.** Choose what you want to do from visual menus, add your ingredients and generate. Hover over a tool to see a preview, compare results, and revisit a take with its settings when you want another version. ComfyUI does the heavy lifting in the background; you can open the nodes when you want more control.
-
-**On an RTX 4090, locally.** CreativeField has been developed and tested on a Windows computer with an RTX 4090 and 64 GB of RAM. In one separate experimental HyperFlow H3 Flash and Deno run, a 3.04-second image-to-video clip took about **3 minutes** to generate and refine to 1088 × 1440. This is one measured result from an experimental setup, not a speed promise for the current app: clip length, resolution, model loading, settings and other work on the computer all affect the wait. The app shows the run's progress and records its time so you can see what your own setup does.
 
 Having a pro-grade palette at your fingertips, and every feature ComfyUI brings with it, does not mean you need a toolbox with all the equipment in it. Most of the time the work comes down to a few core moves: you start from an input and you want a video, a picture, or an edit of a picture. CreativeField is built around exactly those moves.
 
