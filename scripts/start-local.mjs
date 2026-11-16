@@ -140,7 +140,10 @@ async function main() {
       const opener = process.platform === "win32" ? ["cmd", ["/c", "start", "", url]]
         : process.platform === "darwin" ? ["open", [url]]
         : ["xdg-open", [url]];
-      spawn(opener[0], opener[1], { stdio: "ignore", detached: true, shell: process.platform === "win32" }).unref();
+      const child = spawn(opener[0], opener[1], { stdio: "ignore", detached: true, shell: process.platform === "win32" });
+      // Without this, a missing xdg-open (common on minimal Linux installs) is an unhandled 'error' and kills the launcher.
+      child.on("error", () => console.log(`[start] Could not open a browser; open ${url} yourself.`));
+      child.unref();
     }
   } else {
     console.error("[start] Server did not become healthy within 60 seconds.");

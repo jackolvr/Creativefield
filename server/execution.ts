@@ -8,7 +8,8 @@ import { readFile } from "node:fs/promises";
 import { Readable } from "node:stream";
 import { WebSocket } from "ws";
 import {jobFeedRoutes} from "./job-feed";
-import {onThisComputer,laneDecision,localQueueState,gpuLaneEnabled,modelFamily,familyChanged,GPU_BUSY_STATES,GPU_BUSY_STALE_MINUTES} from "./gpu-lane";
+import {uploadTimeoutMs,downloadTimeoutMs} from "./transfer-timeouts";
+import {onThisComputer,inGpuLane,laneDecision,localQueueState,gpuLaneEnabled,modelFamily,familyChanged,GPU_BUSY_STATES,GPU_BUSY_STALE_MINUTES} from "./gpu-lane";
 import sharp from "sharp";
 import type { CapabilityBundle,Invocation } from "../src/capabilities/types";
 import type { ApiGraph } from "../src/workflow/build";
@@ -452,7 +453,7 @@ export class ExecutionService {
                     if(!this.memoryWaiting.has(run.id)){this.memoryWaiting.add(run.id);await this.event(run.workspace_id,run.id,"pending",{waiting:"memory",detail:`Waiting for free memory (below ${Math.round(MIN_FREE_RAM_SHARE*100)} %)`}).catch(()=>{});}
                     continue;
                   }
-                  if(gpuLaneEnabled()&&onThisComputer(worker)&&!(await this.gpuLaneOpen(run,worker)))continue;
+                  if(gpuLaneEnabled()&&inGpuLane(worker)&&!(await this.gpuLaneOpen(run,worker)))continue;
                   this.memoryWaiting.delete(run.id);this.memoryNotes.delete(run.id);
                   this.memoryReliefAttempted.delete(worker.id);
                   await this.submit(run,worker);
@@ -472,7 +473,7 @@ export class ExecutionService {
   private gpuFamily=new Map<string,string>();
   /** One run at a time on this computer's graphics card; the other local ComfyUIs unload before a new one takes it. */
   private async gpuLaneOpen(run:any,worker:any):Promise<boolean>{
-    const local=(await this.pool.query("SELECT * FROM workers WHERE enabled=true")).rows.filter(onThisComputer);
+    const local=(await this.pool.query("SELECT * FROM workers WHERE enabled=true")).rows.filter((w:any)=>inGpuLane(w));
     // Keyed by ComfyUI address: one ComfyUI can be a worker in several workspaces.
     const origins=[...new Set(local.map((w:any)=>w.origin as string))];
     const busyIds=new Set((await this.pool.query("SELECT DISTINCT worker_id FROM runs WHERE state = ANY($1) AND updated_at > now() - make_interval(mins => $2)",[[...GPU_BUSY_STATES],GPU_BUSY_STALE_MINUTES])).rows.map((r:any)=>r.worker_id as string));
@@ -512,9 +513,9 @@ export class ExecutionService {
       try{await this.idle.check(worker.id,(path,init)=>this.fetch(worker,path,init),worker.has_runs,workerKind(worker));}catch{/* offline worker: nothing to unload */}
     }
   }
-  private async fetch(worker:any,path:string,init:RequestInit={}) {
+  private async fetch(worker:any,path:string,init:RequestInit={},timeoutMs=20000) {
     const headers=workerRequestHeaders(worker,init.headers);
-    return fetch(`${worker.origin}${worker.api_prefix}${path}`,{...init,...(headers?{headers}:{}),redirect:"error",signal:AbortSignal.timeout(20000)});
+    return fetch(`${worker.origin}${worker.api_prefix}${path}`,{...init,...(headers?{headers}:{}),redirect:"error",signal:AbortSignal.timeout(timeoutMs)});
   }
   private async compileWorkerGraph(worker:any,bundle:CapabilityBundle,invocation:Invocation,inputs:Record<string,string>,sourceFrames?:number) {
     const graph=compileRunGraph(bundle,invocation,inputs,sourceFrames);
@@ -529,7 +530,7 @@ export class ExecutionService {
   /** Upload one input file and keep the name the graph already refers to. */
   private async uploadInput(worker:any,filename:string,data:Blob,role:string):Promise<string>{
     const form=new FormData();form.append("image",data,filename);form.append("overwrite","false");
-    const uploaded=await this.fetch(worker,"/upload/image",{method:"POST",body:form});
+    const uploaded=await this.fetch(worker,"/upload/image",{method:"POST",body:form},uploadTimeoutMs());
     if(!uploaded.ok)throw new Error(`Worker upload failed for ${role} (${uploaded.status}): ${(await uploaded.text()).slice(0,240)}`);
     if(!acceptedUploadPath(worker,filename,await uploaded.json() as {name?:string;subfolder?:string}))throw new Error("Worker returned an unexpected upload path");
     return filename;
@@ -849,7 +850,7 @@ export class ExecutionService {
         const output=byName.get(file.filename);
         if(!output)throw new PermanentArtifactError("SDK proxy output is missing from the job");
         if(output.sizeBytes>MAX_SDK_OUTPUT_BYTES)throw new PermanentArtifactError("SDK proxy artifact exceeds its byte limit");
-        const bytes=Buffer.from(await output.toBytes({timeoutMs:60000}));
+        const bytes=Buffer.from(await output.toBytes({timeoutMs:Math.max(60000,downloadTimeoutMs())}));
         if(bytes.length>MAX_SDK_OUTPUT_BYTES)throw new PermanentArtifactError("SDK proxy artifact exceeds its byte limit");
         const stored=await this.store.put(run.workspace_id,Readable.from([bytes]));
         saved.push({id:newId(),name:file.filename,...stored});
@@ -1110,7 +1111,7 @@ export class ExecutionService {
       }
       for(const file of files) {
         try{declaredMedia==="image"?assertSafeImageFile(file):safeOutputFile(file);}catch{throw new PermanentArtifactError("Worker returned an unsafe artifact path");}
-        const response=await this.fetch(worker,`/view?${new URLSearchParams(file)}`);
+        const response=await this.fetch(worker,`/view?${new URLSearchParams(file)}`,{},downloadTimeoutMs());
         if(!response.ok||!response.body)throw new Error("Output unavailable");
         saved.push({id:newId(),name:file.filename,...await this.store.put(run.workspace_id,Readable.fromWeb(response.body as any))});
         const last=saved[saved.length-1];
@@ -1296,7 +1297,7 @@ export class ExecutionService {
         artifacts=[];
         for(let index=0;index<resolved.length;index+=1){
           const item=resolved[index],declaration=declared[index].declaration;
-          const response=await this.fetch(worker,`/view?${new URLSearchParams(item.file)}`);
+          const response=await this.fetch(worker,`/view?${new URLSearchParams(item.file)}`,{},downloadTimeoutMs());
           if(!response.ok||!response.body)throw new Error("Image output is temporarily unavailable");
           const stored=await this.store.put(run.workspace_id,boundedImageStream(response.body,declaration.maxBytes));
           const relations=[];
@@ -1369,7 +1370,7 @@ export class ExecutionService {
     try{safeOutputFile(file);}catch{throw new PermanentArtifactError("Worker returned an unsafe artifact path");}
     let saved:{id:string;key:string;sha256:string;bytes:number;name:string}|undefined;
     try{
-      const response=await this.fetch(worker,`/view?${new URLSearchParams(file)}`);
+      const response=await this.fetch(worker,`/view?${new URLSearchParams(file)}`,{},downloadTimeoutMs());
       if(!response.ok||!response.body)throw new Error("Output unavailable");
       saved={id:outputAssetId,name:file.filename,...await this.store.put(run.workspace_id,Readable.fromWeb(response.body as any))};
       const maskFile=await this.store.file(run.workspace_id,saved.key),sourceFile=await this.store.file(run.workspace_id,source.storage_key);

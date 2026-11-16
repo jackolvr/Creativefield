@@ -19,6 +19,21 @@ export function onThisComputer(worker: { kind?: string; origin?: string }): bool
   try { return LOOPBACK.has(new URL(worker.origin).hostname); } catch { return false; }
 }
 
+/** Remote ComfyUIs that sit on one graphics card of their own (a rented or cloud-hosted GPU reached over a VPN) can join the
+ *  lane too: COMFYFIELD_GPU_LANE_ORIGINS lists their origins, comma separated (e.g. http://zitpoc-comfy:8188). Matching is by
+ *  origin (scheme, host, port); invalid entries are ignored. Comfy Cloud workers never join. */
+export function gpuLaneOrigins(env: NodeJS.ProcessEnv = process.env): string[] {
+  return (env.COMFYFIELD_GPU_LANE_ORIGINS ?? "").split(",").map((v) => v.trim()).filter(Boolean).flatMap((v) => { try { return [new URL(v).origin]; } catch { return []; } });
+}
+
+/** A worker that shares one graphics card with the others in the lane: a ComfyUI on this computer, or a remote one named in
+ *  COMFYFIELD_GPU_LANE_ORIGINS. Use this for the lane; onThisComputer stays for things that need the local file system. */
+export function inGpuLane(worker: { kind?: string; origin?: string }, env: NodeJS.ProcessEnv = process.env): boolean {
+  if (worker.kind === "cloud" || !worker.origin) return false;
+  if (onThisComputer(worker)) return true;
+  try { return gpuLaneOrigins(env).includes(new URL(worker.origin).origin); } catch { return false; }
+}
+
 /** Run states that mean a ComfyUI has the job and may be using the card. */
 export const GPU_BUSY_STATES = ["submitting", "submission_unknown", "queued", "running", "cancel_requested"] as const;
 
