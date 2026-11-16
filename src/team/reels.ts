@@ -61,7 +61,7 @@ export const LOW_PRIORITY_EXAMPLES:readonly string[] = [
     Midjourney loops, then the early test clips. Available in the Library and media picker. */
 export const LIBRARY_EXAMPLE_VIDEOS = [...FEATURED_VIDEO_EXAMPLES,...SQUAREHEAD_EXAMPLE_VIDEOS,...OPENJUTSU_SHOWCASE.map(item=>item.result),
   ...["reshoot","effects-lab","copy-moves","film-studio","block-shot","swap-thing","new-look","video-studio","ad-studio"].map(name=>`/examples/promo/${name}.mp4`),
-  ...POOL_VIDEOS,...Array.from({ length: 8 }, (_, i) => `/reels/mj-0${i}.mp4`),...LOW_PRIORITY_EXAMPLES];
+  ...POOL_VIDEOS,...["upscale","edit","picture","remix","character","angles","relight"].map(id=>`/examples/tiles/menu-${id}.mp4`),...Array.from({ length: 8 }, (_, i) => `/reels/mj-0${i}.mp4`),...LOW_PRIORITY_EXAMPLES];
 
 /** These clips illustrate each area; they are not claims that the named workflow made the clip. */
 export function promoReelForCapability(ids?:string|string[]){

@@ -15,6 +15,14 @@ const ROWS: Record<Medium,{id:string;title:string;text:string}[]> = {
   video: [{id:"create",title:"Create",text:"make a new clip"},{id:"change",title:"Change",text:"change a clip you have"},{id:"upscale",title:"Upscale",text:"sharper, bigger or smoother"},{id:"film-studio",title:"Film Studio",text:"plan the shots, make one film"}],
   image: [{id:"create",title:"Create",text:"make a new picture"},{id:"change",title:"Change",text:"change a picture you have"},{id:"upscale",title:"Upscale",text:"bigger and sharper"},{id:"fotofield",title:"FotoField",text:"layers, masks and AI edits"}],
 };
+/** Menu entries with a loop of their own (Creative Field characters, CONVE-1747), by the title the menu shows: [clip, poster]
+ *  under public/examples/tiles. Screen entries (Camera angles, Relight) have no task id, so the title is the key. */
+const T="/examples/tiles/";
+const MENU_MEDIA:Record<string,[string,string]>={
+  "Upscale":["menu-upscale","menu-upscale"],"Edit video":["menu-edit","menu-edit"],
+  "Make a picture":["menu-picture","picture"],"Remix Studio":["menu-remix","remix"],"My characters":["menu-character","character"],
+  "Camera angles":["menu-angles","angles"],"Relight":["menu-relight","new-look-before"],
+};
 const TASK_ROW: Record<string,string> = {Create:"create",Change:"change",Upscale:"upscale","Film Studio":"film-studio"};
 /** Tasks a dropdown leaves out because a screen entry does the same more directly: "Turn it around" opens the general
  *  picture tool, the Camera angles entry opens the angles workflow itself. */
@@ -49,7 +57,7 @@ export function mediumMenus(tasks:readonly TaskLike[],openTask:(id:string)=>void
       const order = own.map(entry=>entry.id);
       const tiles = own.length ? groupMenu(medium,own).flatMap(group=>group.tiles).sort((a,b)=>order.indexOf(a.id)-order.indexOf(b.id))
         /* A tool with its own All tools loop shows that same loop in the menu, so both places tell one story. */
-        .map(tile=>{const task=tasks.find(t=>t.id===tile.id);return task?.video?{...tile,clip:task.video,poster:task.video.replace(/\.mp4$/,".webp")}:tile;}) : [];
+        .map(tile=>{const own=MENU_MEDIA[tile.title],task=tasks.find(t=>t.id===tile.id);return own?{...tile,clip:`${T}${own[0]}.mp4`,poster:`${T}${own[1]}.webp`}:task?.video?{...tile,clip:task.video,poster:task.video.replace(/\.mp4$/,".webp")}:tile;}) : [];
       return tiles.length ? [{id:`${medium}:${row.id}`,title:row.title,text:row.text,tiles}] : [];
     });
   }
