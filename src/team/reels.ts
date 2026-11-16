@@ -34,7 +34,8 @@ const REELS = {
 } as const;
 
 /** The placeholder clips that take turns behind heroes (Midjourney set). */
-export const POOL_VIDEOS = Array.from({ length: 8 }, (_, i) => `/reels/mj-0${i}.mp4`);
+/* The two newest Creative Field loops (hoverbike, samurai) join the hero rotation in front of the earlier reels. */
+export const POOL_VIDEOS = ["/examples/tiles/video.mp4", "/examples/tiles/swap-person.mp4", ...Array.from({ length: 8 }, (_, i) => `/reels/mj-0${i}.mp4`)];
 
 /** Newest finished video examples appear first in the shared feed and Library. */
 export const FEATURED_VIDEO_EXAMPLES = ["/examples/promo/beach-portrait.mp4"];
