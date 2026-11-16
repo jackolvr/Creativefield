@@ -11,6 +11,10 @@ import {parseStageScore} from "./score/parse";
 import {synthesizeMeasuredPlan} from "./geometry-synthesis";
 import {planToScoreYaml} from "./score-build";
 import {requestGeometryBatch} from "./analysis-client";
+import {renderShotClipFrames} from "./stage/shot-capture";
+import {uploadBlockoutClip} from "./stage/handoff";
+import type {StageScore} from "./score/schema";
+import type {ShotGeometry} from "./analysis-contract";
 import "./film-studio.css";
 
 const LegacyFilmStudio=lazy(async()=>({default:(await import("./FilmStudio")).LegacyFilmStudio}));
@@ -39,10 +43,30 @@ const shotWords=(scan:AnalysisScan)=>{
   for(const geometry of scan.geometries){
     if(geometry.quality==="estimated")continue;
     const camera=geometry.camera;
-    lines.push(`Shot ${geometry.shotIndex+1}: ${Math.round(camera.lensMm)} mm, ${Math.round(camera.fovDeg)}Ãƒâ€šÃ‚Â° horizontal, camera ${camera.heightM.toFixed(1)} m high, ${Math.round(camera.pitchDeg)}Ãƒâ€šÃ‚Â° pitch.`);
+    lines.push(`Shot ${geometry.shotIndex+1}: ${Math.round(camera.lensMm)} mm, ${Math.round(camera.fovDeg)}° horizontal, camera ${camera.heightM.toFixed(1)} m high, ${Math.round(camera.pitchDeg)}° pitch.`);
   }
   return lines.join("\n");
 };
+/** One previs clip holds at most 20 s at 24 fps (the blockout encoder's frame limit). */
+const PREVIS_FPS=24,PREVIS_MAX_FRAMES=480;
+/** The previs clip of an analysed H3 clip: every shot rendered through its measured camera, with its
+ *  rebuilt set and figures, in the handoff look, joined in order so the clip cuts where the source cuts. */
+async function renderPrevisFrames(score:StageScore,geometries:readonly ShotGeometry[],onProgress:(done:number,total:number)=>void){
+  const frames:string[]=[];
+  for(const [index,shot] of score.shots.entries()){
+    const left=PREVIS_MAX_FRAMES-frames.length;
+    if(left<2)break;
+    const set=geometries.find(geometry=>geometry.shotIndex===index)?.set;
+    const clip=await renderShotClipFrames(score,shot.id,{fps:PREVIS_FPS,width:1280,maxFrames:left,maxDurationSec:Math.max(0.1,shot.endSec-shot.startSec),look:"handoff",set});
+    frames.push(...clip.frames);
+    onProgress(index+1,score.shots.length);
+  }
+  return frames;
+}
+/** Where the previs flow stands: one value, so a second run cannot start while one works. */
+type PrevisState={step:"idle"}|{step:"rendering";text:string}|{step:"encoding"}|{step:"importing"}|{step:"placed";name:string}|{step:"failed";error:string};
+const previsBusy=(state:PrevisState)=>state.step==="rendering"||state.step==="encoding"||state.step==="importing";
+
 type BriefEntry={label:string;shotNumber:number;brief:ReturnType<typeof shotBrief>};
 const blockingLines=(scan:AnalysisScan)=>scan.geometries.flatMap(geometry=>{
   const lines:string[]=[];
@@ -58,7 +82,7 @@ const blockingLines=(scan:AnalysisScan)=>scan.geometries.flatMap(geometry=>{
 const measurementLines=(scan:AnalysisScan)=>scan.geometries.flatMap(geometry=>{
   const camera=geometry.camera;
   const level=geometry.quality==="estimated"?"estimated":`${Math.round(geometry.floor.confidence*100)}% floor confidence`;
-  return [`Shot ${geometry.shotIndex+1}: ${Math.round(camera.lensMm)} mm Ãƒâ€šÃ‚Â· ${Math.round(camera.fovDeg)}Ãƒâ€šÃ‚Â° horizontal Ãƒâ€šÃ‚Â· ${camera.heightM.toFixed(2)} m high Ãƒâ€šÃ‚Â· ${Math.round(camera.pitchDeg)}Ãƒâ€šÃ‚Â° pitch Ãƒâ€šÃ‚Â· ${level}`];
+  return [`Shot ${geometry.shotIndex+1}: ${Math.round(camera.lensMm)} mm · ${Math.round(camera.fovDeg)}° horizontal · ${camera.heightM.toFixed(2)} m high · ${Math.round(camera.pitchDeg)}° pitch · ${level}`];
 });
 
 /** Film Studio, hosted on the H3 Editor custom node of the HyperFlow H3 Flash worker.
@@ -80,6 +104,7 @@ export function H3FilmStudio({workspace,project,call,canCreate,onOpenShotGenerat
   const [noteSaved,setNoteSaved]=useState(false);
   const [analysisTab,setAnalysisTab]=useState<"brief"|"blocking"|"measurements">("brief");
   const [briefDraft,setBriefDraft]=useState("");
+  const [previs,setPrevis]=useState<PrevisState>({step:"idle"});
   const retry=useRef<number|undefined>(undefined);
   const name=projectName(project.id);
   const briefs=useMemo<BriefEntry[]|null>(()=>{
@@ -145,13 +170,15 @@ export function H3FilmStudio({workspace,project,call,canCreate,onOpenShotGenerat
 
   async function openAnalysis(){
     setAnalysisOpen(true);setAnalysisError("");setNoteSaved(false);
+    // Each opening starts at the clip list, so another clip can be chosen; work still running stays shown.
+    if(!scanning&&!measuring&&!previsBusy(previs)){setScan(null);setScanClip(null);setPrevis({step:"idle"});}
     try{await refreshClips();}catch(cause){setAnalysisError((cause as Error).message);}
   }
 
   async function analyse(clip:H3Clip){
     const take=takeOf(clip);
     if(!take)return;
-    setScanning(true);setAnalysisError("");setScan(null);setScanClip(clip);setNoteSaved(false);setAnalysisTab("brief");setAnalysisStage("Scanning the clip");
+    setScanning(true);setAnalysisError("");setScan(null);setScanClip(clip);setNoteSaved(false);setPrevis({step:"idle"});setAnalysisTab("brief");setAnalysisStage("Scanning the clip");
     try{
       const response=await fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/h3-editor/media?filename=${encodeURIComponent(take.file)}&subfolder=${encodeURIComponent(take.subfolder)}`,{credentials:"same-origin"});
       if(!response.ok)throw new Error("The clip file is not available.");
@@ -185,6 +212,26 @@ export function H3FilmStudio({workspace,project,call,canCreate,onOpenShotGenerat
     finally{setMeasuring(false);setAnalysisStage("");}
   }
 
+  /** Render the blocking as a grey previs clip and put it in the H3 timeline right after its source,
+   *  with the shot brief as a note at its first frame. */
+  async function addPrevisClip(){
+    if(!scan||!scanClip||!blockingScore||previsBusy(previs))return;
+    setPrevis({step:"rendering",text:"Rendering the stage"});
+    try{
+      const frames=await renderPrevisFrames(blockingScore,scan.geometries,(done,total)=>setPrevis({step:"rendering",text:`Rendering shot ${done} of ${total}`}));
+      if(frames.length<2)throw new Error("The stage gave no frames to render.");
+      setPrevis({step:"encoding"});
+      const clipName=`Previs: ${scanClip.name||scanClip.id}`;
+      const asset=await uploadBlockoutClip(workspace.id,project.id,{frames,fps:PREVIS_FPS,name:`${clipName}.mp4`});
+      setPrevis({step:"importing"});
+      const placed=await call<{clip?:string}>(workspacePath(workspace.id,`h3-editor/project/${encodeURIComponent(name)}/import`),"POST",{assetId:asset.id,projectId:project.id,name:clipName,afterClip:scanClip.id});
+      const brief=(briefDraft.trim()||briefLines.join("\n\n")).slice(0,3900);
+      if(placed.clip&&brief)await call(workspacePath(workspace.id,`h3-editor/project/${encodeURIComponent(name)}/notes`),"POST",{clip:placed.clip,frame:0,text:brief});
+      setPrevis({step:"placed",name:clipName});
+      void refreshClips().catch(()=>{});
+    }catch(cause){setPrevis({step:"failed",error:(cause as Error).message});}
+  }
+
   async function saveNote(){
     if(!scan||!scanClip)return;
     setAnalysisError("");
@@ -203,18 +250,20 @@ export function H3FilmStudio({workspace,project,call,canCreate,onOpenShotGenerat
     {error&&<Notice priority={10} title="The H3 Editor is not reachable" actions={<Button variant="secondary" onClick={()=>{setError("");setLegacy(true);}}>Use classic studio</Button>} details={error}>The editor runs inside the HyperFlow H3 Flash worker. Connect a local worker in Settings and try again.</Notice>}
     {origin
       ?<iframe className="cf-h3studio__frame" title="H3 Editor" src={`/h3-editor/${workspace.id}/h3take/editor?project=${encodeURIComponent(name)}&cf_project=${encodeURIComponent(project.id)}`} allow="clipboard-write; fullscreen"/>
-      :!error&&<Meta>Looking for the HyperFlow H3 Flash workerÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦</Meta>}
+      :!error&&<Meta>Looking for the HyperFlow H3 Flash worker…</Meta>}
     <Dialog open={analysisOpen} title="Analyze an H3 clip" onClose={()=>setAnalysisOpen(false)} footer={<Button variant="secondary" onClick={()=>setAnalysisOpen(false)}>Close</Button>}>
       {analysisError&&<Notice priority={20} title="Analysis did not finish" details={analysisError}>The clip stays unchanged.</Notice>}
       {(scanning||measuring)&&<StatusText tone="active">{analysisStage||"Analysing the clip."}</StatusText>}
       {!scan&&!scanning&&<Block label="Clips"><div className="cf-h3analysis">{clips.map(clip=><Button key={clip.id} variant="secondary" onClick={()=>void analyse(clip)}>{clip.name||clip.id}</Button>)}</div>{!clips.length&&<Meta>Open a project with a rendered or imported clip in the editor first.</Meta>}</Block>}
       {scan&&scanClip&&<Block label={scanClip.name||scanClip.id}>
-        <Meta parts={[`${scan.shots.length} shots`,`${scan.clip.durationSec.toFixed(1)} s`,`${scan.clip.width}ÃƒÆ’Ã¢â‚¬â€${scan.clip.height}`]}/>
+        <Meta parts={[`${scan.shots.length} shots`,`${scan.clip.durationSec.toFixed(1)} s`,`${scan.clip.width}×${scan.clip.height}`]}/>
         <SegmentedTabs items={[{id:"brief",label:"Shot brief"},{id:"blocking",label:"Blocking"},{id:"measurements",label:"Measurements"}]} value={analysisTab} onChange={setAnalysisTab} label="Analysis view" block/>
         {analysisTab==="brief"&&<div className="cf-h3analysis">{scan.decisions.length||scan.geometries.length?<PromptField label="Shot brief" value={briefDraft} onChange={setBriefDraft} placeholder="Write the brief for this clip." compact/>:<Meta>No brief yet. Analyse the clip first.</Meta>}</div>}
         {analysisTab==="blocking"&&<div className="cf-h3analysis">{blockingScore&&<div className="cf-h3blocking__stage"><Suspense fallback={null}><StageViewport score={blockingScore} frame={evaluateFrame(blockingScore,0)} view="free" labels="all" onNavigateStart={()=>{}}/></Suspense></div>}{scan.decisions.map(decision=><Meta key={`d${decision.shotIndex}`}>{`Shot ${decision.shotIndex+1}: ${decision.people} ${decision.people===1?"person":"people"}, ${decision.size} shot, ${decision.motion} camera.`}</Meta>)}{blockingLines(scan).map((line,index)=><Meta key={`p${index}`}>{line}</Meta>)}{!blockingLines(scan).length&&<Meta>Press Measure camera to place the people and the camera.</Meta>}</div>}
         {analysisTab==="measurements"&&<div className="cf-h3analysis">{measurementLines(scan).map((line,index)=><Meta key={`m${index}`}>{line}</Meta>)}{scan.skips.map(skip=><Meta key={`s${skip.shotIndex}`}>{`Shot ${skip.shotIndex+1}: ${skip.reason}`}</Meta>)}{!measurementLines(scan).length&&<Meta>No measurements yet. Press Measure camera.</Meta>}</div>}
-        {scan.pending.geometry&&!measuring&&scan.geometries.length===0&&<Button variant="secondary" onClick={()=>void measureGeometry()}>Measure camera</Button>}{noteSaved?<StatusText tone="ok">Saved as a note at the clip's first frame.</StatusText>:<Button variant="primary" onClick={()=>void saveNote()}>Save brief as note</Button>}
+        {scan.pending.geometry&&!measuring&&scan.geometries.length===0&&<Button variant="secondary" onClick={()=>void measureGeometry()}>Measure camera</Button>}{previs.step==="failed"&&<Notice priority={20} title="The previs clip was not added" details={previs.error} actions={<Button variant="secondary" onClick={()=>void addPrevisClip()}>Try again</Button>}>The H3 project is unchanged.</Notice>}
+        {blockingScore&&<Toolbar end={previsBusy(previs)?<StatusText tone="active">{previs.step==="rendering"?previs.text:previs.step==="encoding"?"Encoding the clip":"Adding it to the timeline"}</StatusText>:previs.step==="placed"?<StatusText tone="ok">{`${previs.name} is in the timeline after its source.`}</StatusText>:<Button variant="primary" onClick={()=>void addPrevisClip()}>Add previs clip</Button>}><Meta>The stage as a grey clip, cut like the source</Meta></Toolbar>}
+        {noteSaved?<StatusText tone="ok">Saved as a note at the clip's first frame.</StatusText>:<Button variant="secondary" onClick={()=>void saveNote()}>Save brief as note</Button>}
       </Block>}
     </Dialog>
   </div>;

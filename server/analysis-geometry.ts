@@ -74,6 +74,8 @@ import {
   stagePointFromCamera,
   syntheticLevelFloor,
   toContractFloor,
+  peopleScale,
+  plausiblePersonHeight,
   voxelizeSetBands,
   type CameraIntrinsics,
   type CameraMeasurement,
@@ -185,7 +187,12 @@ export type GeometryEvidence = {
   /** Set-block count of the shot (for the acceptance evidence). */
   setBlockCount?: number;
   setSource?: "moge-pointcloud" | "background-estimate";
+  /** The factor every length of the shot was scaled by so the measured people come out at a human height (1 = as measured). */
+  peopleScale?: number;
 };
+
+/** Below this floor-fit confidence the measured people set the scale of the shot (peopleScale). */
+export const PEOPLE_SCALE_FLOOR_CONFIDENCE = 0.3;
 
 /** The keyframe-still person clip the SAM3 pass sees (: 3 frames, not the shot clip). */
 export type PersonClip = {
@@ -1275,6 +1282,8 @@ async function buildPointcloudSet(input: {
   attempt: Attempt;
   floor: Pick<FloorPlane, "normal" | "offsetM">;
   persons: PersonTrack[];
+  /** Multiplies the mesh before it is placed (peopleScale); the floor and persons come in already scaled. */
+  scale?: number;
 }): Promise<{set: SceneBlock[]; setSource: "moge-pointcloud"}> {
   const mesh = input.attempt.result?.mesh;
   const empty = {set: [] as SceneBlock[], setSource: "moge-pointcloud" as const};
@@ -1288,7 +1297,8 @@ async function buildPointcloudSet(input: {
   const stagePoints: number[] = [];
   const vertexCount = Math.floor(mesh.positions.length / 3);
   for (let vertex = 0; vertex < vertexCount; vertex++) {
-    const cameraPoint: [number, number, number] = [mesh.positions[vertex * 3], mesh.positions[vertex * 3 + 1], mesh.positions[vertex * 3 + 2]];
+    const scale = input.scale ?? 1;
+    const cameraPoint: [number, number, number] = [mesh.positions[vertex * 3] * scale, mesh.positions[vertex * 3 + 1] * scale, mesh.positions[vertex * 3 + 2] * scale];
     if (!Number.isFinite(cameraPoint[0]) || !Number.isFinite(cameraPoint[1]) || !Number.isFinite(cameraPoint[2])) continue;
     if (bitmaps.length && bitmaps.some((bitmap) => maskCovers(bitmap, mesh.uvs[vertex * 2], mesh.uvs[vertex * 2 + 1]))) continue;
     const stage = stagePointFromCamera(input.floor, basis, cameraPoint);
@@ -1448,6 +1458,20 @@ async function analyzeAcceptedShot(client: ComfyAnalysisClient, entry: PreparedS
   }
   baseEvidence.persons = persons;
   baseEvidence.rawPersonHeightsM = persons.diagnostics.rawHeightsM;
+  // The people are the ruler when the floor is not trusted: a scene measured far too small or large
+  // (a grey CG render: floor 8 %, person 0.62 m) is scaled as a whole. A confidently measured floor
+  // keeps MoGe's metric scale; an odd person height there is more likely sitting or occluded.
+  const scale = floor.confidence < PEOPLE_SCALE_FLOOR_CONFIDENCE ? peopleScale(persons.tracks.map((track) => track.rawHeightM)) : 1;
+  const scaledFloor = scale === 1 ? floor : {...floor, offsetM: floor.offsetM * scale};
+  const scaledCamera = scale === 1 ? cameraMeasurement : {...cameraMeasurement, heightM: cameraMeasurement.heightM * scale};
+  if (scale !== 1) {
+    baseEvidence.peopleScale = round(scale, 3);
+    persons = {...persons, tracks: persons.tracks.map((track) => ({
+      ...track,
+      heightM: track.rawHeightM === undefined ? track.heightM : round(plausiblePersonHeight(track.rawHeightM * scale).heightM, 3),
+      keyframes: track.keyframes.map((keyframe) => ({...keyframe, xM: round(keyframe.xM * scale, 3), zM: round(keyframe.zM * scale, 3)})),
+    }))};
+  }
   if (!persons.tracks.length) {
     const skippedReasons = [...new Set(persons.diagnostics.skipped.map((skip) => skip.reason))];
     const onlyHeadCut = skippedReasons.length > 0 && skippedReasons.every((reason) => reason.startsWith("head outside the top edge"));
@@ -1464,8 +1488,8 @@ async function analyzeAcceptedShot(client: ComfyAnalysisClient, entry: PreparedS
   }
   const geometry: ShotGeometry = {
     shotIndex: entry.shot.index,
-    floor: toContractFloor(floor),
-    camera: toContractCamera(cameraMeasurement),
+    floor: toContractFloor(scaledFloor),
+    camera: toContractCamera(scaledCamera),
     persons: persons.tracks,
     source: {
       model: `${params.models.geometry} / ${params.models.persons}`,
@@ -1474,7 +1498,7 @@ async function analyzeAcceptedShot(client: ComfyAnalysisClient, entry: PreparedS
     },
   };
   // Set blocks from the same MoGe mesh read for the floor fit: person points removed, voxelized.
-  const builtSet = await buildPointcloudSet({entry, attempt: accepted, floor, persons: persons.tracks}).catch(() => ({set: [] as SceneBlock[], setSource: "moge-pointcloud" as const}));
+  const builtSet = await buildPointcloudSet({entry, attempt: accepted, floor: scaledFloor, persons: persons.tracks, scale}).catch(() => ({set: [] as SceneBlock[], setSource: "moge-pointcloud" as const}));
   geometry.set = builtSet.set;
   geometry.setSource = builtSet.setSource;
   baseEvidence.setBlockCount = builtSet.set.length;

@@ -18,7 +18,7 @@ Live reference: run `npm run dev` and open `http://localhost:5173/#ds`.
 10. **Every interactive element has hover and focus feedback.** Surface steps up one shade and a hairline appears; press scales to 0.97–0.99; focus shows the accent ring. Native `disabled` is only for a transient busy state. When the current surface can make an input valid, keep the action visible with `aria-disabled="true"`, a normal appearance, and a visible `aria-describedby` hint.
 11. **Loading.** `SparkleLoader` is the only spinner. Text that describes a running state uses `ShimmerText`; unknown content uses `Skeleton`. Motion is off under `prefers-reduced-motion`.
 12. **Buttons stay quiet.** Only the primary action (Generate, Done) is bright and glows. Secondary, ghost, and glass buttons (Cancel, Reuse, Download, Change, Remove) use secondary text color and regular weight, and brighten only on hover.
-13. **Progress is text.** The shared `JobQueueMenu` in the header may use the requested circular progress hint; it pairs it with a readable state and percentage in the dropdown. Other surfaces keep text progress. The sparkle, a shimmering label, and a quiet percentage. There is no progress bar.
+13. **Progress is text.** The shared `JobQueueMenu` in the header may use the requested circular progress hint; it pairs it with a readable state and percentage in the dropdown. Other surfaces keep text progress. The sparkle, a shimmering label, and a quiet percentage. A real measured progress (tiles of a quick upscale) may add the slim bar of `Progress`: a 2-3 px hairline whose accent fill carries the same shimmer band as the label, never a thick or coloured bar. Over media it is `Progress floating`, a compact glass pill (user direction, 2026-11-15).
 14. **Context stays out of the way.** Secondary information and repeated per-item actions may appear on hover, but must also appear on `:focus-within`. A primary action is never hover-only. Detail overlays open over the content so nothing shifts.
 15. **Three levels of information, never more.** Every piece of text on a screen is exactly one of these:
 
@@ -43,6 +43,7 @@ Live reference: run `npm run dev` and open `http://localhost:5173/#ds`.
     | Function | Component |
     |---|---|
     | Upload a file | `UploadSlot` (`tile` inside `UploadPair` for two side by side) |
+    | Choose a picture or clip from the project | `MediaPickerDialog`: this device is the first tile of the grid, the project's media follow; `TeamChoice`/`LibraryChoice` (`upload`), FotoField and Keyframes all open it |
     | Many references for one run (people, products, clothes) | `ReferenceTray` (a `Thumb` per reference with `onRemove`); it carries the cap and the add tile |
     | Text input, any length | `PromptField` (`PromptGroup` for related fields) |
     | Optional section | `ToggleRow`, `Collapsible` |
@@ -89,7 +90,7 @@ Live reference: run `npm run dev` and open `http://localhost:5173/#ds`.
 43. **Destructive and irreversible actions confirm; reversible ones undo.** Delete, overwrite, discard and send use `ConfirmDialog` with the named object. A failed confirmation uses its `error` prop so the short problem stays inside that same dialog with the retry action. Everything else applies immediately and offers Undo in the toast.
 44. **Focus and keyboard.** Every interactive element is reachable and visibly focused; Enter submits the primary action in a dialog; Escape closes. Opening a dialog focuses its first field once and never steals focus while typing.
 45. **One word per thing.** The same object has the same name on every screen (Project, Library, Asset, Worker, Run). Buttons are verbs ("Queue video"), tabs and nav items are nouns, and labels never repeat their section title.
-46. **Editors use the editor parts.** Layers are `LayerList`/`LayerRow`, numbers on a range are `SliderField`, the picture sits on a `Stage`, colors come from `Swatches`. Tools sit in the canvas toolbar, tool options appear only while that tool is active, and only the selected layer shows its properties. Reorderable side panels use `DockStack` with named `DockPanel` grips: pointer preview, animated neighbors, Escape cancellation and Alt+Up/Down keyboard ordering. Persist only completed drops; respect reduced motion.
+46. **Editors use the editor parts.** Layers are `LayerList`/`LayerRow`, numbers on a range are `SliderField`, the picture sits on a `Stage`, colors come from `Swatches`. Tools sit in the canvas toolbar, tool options appear only while that tool is active, and only the selected layer shows its properties. The canvas tool rail and the docks share one grey, `--surface-tool` (#1c1e20), lifted off the page; controls inside a dock step up to `--surface-tool-control` (user direction, 2026-11-15). Reorderable side panels use `DockStack` with named `DockPanel` grips: pointer preview, animated neighbors, Escape cancellation and Alt+Up/Down keyboard ordering. Persist only completed drops; respect reduced motion.
 47. **Sections in the rail, modes in the bar.** The app's sections (Video, Image, Motion, Characters, Influencer, Marketing, Audio, Models, Library) are icons in the `AppRail` on the left, named by tooltip, the current one tinted with the accent. The `WorkspaceBar` above the content never repeats the section name: it holds only the mode tabs (accent underline on the active one) and the page's end slot. On every content page with a grid, the end also carries `DensityControl`: one grid icon at rest; the slider and value appear on hover or keyboard focus. The selected number is the actual column count for browse, tile, history, and result grids, capped by the number of visible items. Never restore a permanent "Per row" label or an always-visible slider. Main content screens including Models use the normal `Page` frame; `Page narrow` is reserved for focused forms and empty states. No second row of tabs and no section list in the header. Use `TileGrid` without overriding the shared density, and `ModelTile roomy` when its copy needs more air.
    Models has one header owner: `CapabilityCatalogue`. Its Models/Nodes/Workflows switch and single active-view search belong there. `ComfyLibraryPanel` supplies content and library actions, not another page title, search or view switch. Workflow execution/status filters appear only in Workflows.
 
@@ -134,7 +135,7 @@ Live reference: run `npm run dev` and open `http://localhost:5173/#ds`.
 
 | Group | Tokens |
 |---|---|
-| Surfaces | `--surface-page` #0f1113, `--surface-panel` #131517, `--surface-control` #1c1e20, `--surface-control-hover` #232528, `--surface-subtle`, `--surface-hover`, `--surface-glass` |
+| Surfaces | `--surface-page` #0f1113, `--surface-panel` #131517, `--surface-control` #1c1e20, `--surface-control-hover` #232528, `--surface-tool` #1c1e20 (editor rail and docks; controls on it `--surface-tool-control` #26282b), `--surface-subtle`, `--surface-hover`, `--surface-glass` |
 | Text | `--text-primary` #f7f7f8, `--text-secondary` #898a8b, `--text-tertiary`, `--text-muted`, `--text-placeholder` (30 %), `--text-on-accent` #0b1520 |
 | Accent | `--accent` #2fa8ff, `--accent-soft`, `--accent-ring`, `--accent-glow`, `--accent-glow-strong` |
 | Buttons | `--button-primary-bg` #171b21, `--button-primary-bg-hover` #1b2028, `--button-primary-text` |
@@ -165,7 +166,7 @@ Live reference: run `npm run dev` and open `http://localhost:5173/#ds`.
 | `Flashlight` | Browser-only relight guide: draggable light circle, direction and temperature readout; keyboard arrows and Page Up/Down; never a fake render |
 | `GestureStage` | Camera move recorder: drag across the frame to snap to a pan, wheel or Page Up/Down for zoom; shows the chosen move, replays the path and downloads it as JSON. Never a fake render |
 | `CastCard` | Portrait, name, reference/shot counts; optional activate and drag source. Real counts only |
-| `DropTarget` | Scene drop zone for a cast card or other text payload; dashed quiet border, accent while a valid card is over it; nested drops are handled only by the inner target |
+| `DropTarget` | Scene drop zone for a cast card or other text payload; dashed quiet border, accent while a valid card is over it; nested drops are handled only by the inner target. `wrap` + `onFiles` turns a box with its own content (FotoField Modify) into the target for dropped images: dashed accent border, accent wash and one centred line over the content while files hover |
 | `ScoutReel` | Scroll-snap destination rail with frame thumbnails; wheel and arrow keys cycle, selected tile gets the accent ring |
 | `TrackSticker` | Mask/box overlay with a tracked-object pin; used on a real video frame only |
 | `Teleprompter` | Current spoken line emphasized; no word-level karaoke without a real alignment |
@@ -203,13 +204,13 @@ Crop edge controls use CropHandles (Showcase): fixed screen targets outside the 
 
 TransformHandles (Showcase) provides fixed-size corner, move and rotation targets for proportional layer transforms; pointer capture, arrow-key nudges, Enter/Apply and Escape/Cancel. DockStack can be inert while a canvas transaction owns editing.
 
-`JobQueueMenu`: shared header Jobs dropdown with circular progress, two-line titles, keyboard dismissal/focus return and scoped retry. Data updates live in the application monitor; Showcase includes active and queued jobs.
+`JobQueueMenu`: shared header Jobs dropdown with circular progress, two-line titles, keyboard dismissal/focus return and scoped retry. An active job carries a quiet Cancel (X) beside its row (`onCancel`, `cancellable`); the row says Cancelling… until the next refresh, a failed cancel shows one inline Notice. Data updates live in the application monitor; Showcase includes active and queued jobs.
 
 AnnotationEditor: shared numbered region editor with attached instructions, pointer drawing, keyboard movement/resizing and removal. Showcase before screen usage. Quick preview hands the regions to Image Edit; generation remains an explicit Modify action.
 
 Keyframe animation: keep two to four image inputs, their timeline positions and one prompt per transition in the side panel. Generate each transition with a qualified first/last-frame workflow, preserve shared boundaries once when assembling, and show results and examples in the content area. State model timing limits before generation. Build the panel from `PanelCrumb`, `KeyframeStrip`, `KeyframeSegment` and `KeyframeOptions`: each card's picture is an `UploadSlot`, joined by a stem to its anchor on the mini timeline. Dragging an anchor changes only that time, snapped to positions the model really ends on; dragging a card onto another rearranges the pictures while times and segment prompts stay; hovering the timeline or dropping media on it adds a keyframe only where both halves stay valid. Accent is neon blue, never the reference's purple.
 
-Library and Paste in an `UploadSlot` are separate actions. Use a native button for opening the Library and a separate Paste button. Place a tile `UploadSlot` first in the Keyframes Library grid.
+Library and Paste in an `UploadSlot` are separate actions. Use a native button for opening the Library and a separate Paste button. Every library dialog is `MediaPickerDialog`: the tile `UploadSlot` ("From this device") is the first square of the grid, the size of a picture, never a strip above it (user direction, 2026-11-15).
 
 The Keyframes timeline attracts anchors to whole-second ticks when moving or adding a frame. Use the closest supported frame when the model cannot land exactly on the tick. Duration accepts typed seconds and moves the final anchor through the same model timing rules.
 

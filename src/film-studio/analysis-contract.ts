@@ -29,7 +29,10 @@ import type {ShotStatus} from "./shot-status";
 // people, and a shot without a floor reads its pitch and height from the upright person.
 // Version 8 (2026-11-13): stage x was mirrored (image right came out as stage left); fixed at
 // the source (sceneBasis, rootFromAnchorBearing). Older analyses are mirrored and recomputed.
-export const ANALYSIS_CONTRACT_VERSION = 8;
+// Version 9 (2026-11-15, Phase 3 of LATER-2240): one person split by SAM into masks (shirt and
+// trousers) is measured as one outline, and a shot with an untrusted floor takes its scale from
+// the people. Older analyses had two small figures and a scene about three times too small.
+export const ANALYSIS_CONTRACT_VERSION = 9;
 
 /** Resolution levels and keyframe policy; a change invalidates the cache. */
 export type PyramidParams = {

@@ -1,7 +1,9 @@
 ﻿import type {FastifyInstance} from "fastify";
 import type {Pool} from "pg";
 import {z} from "zod";
+import {readFile} from "node:fs/promises";
 import {HttpError, member} from "./auth";
+import type {DiskStore} from "./storage";
 
 const workspaceParams = z.object({workspaceId: z.uuid()});
 const projectParams = z.object({workspaceId: z.uuid(), name: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,200}$/)});
@@ -11,6 +13,26 @@ const noteBody = z.object({
   text: z.string().trim().min(1).max(4000),
   take: z.string().trim().min(1).max(200).optional(),
 }).strict();
+
+const importBody = z.object({
+  /** A video asset of this project (the rendered previs clip). */
+  assetId: z.uuid(),
+  projectId: z.uuid(),
+  name: z.string().trim().min(1).max(200),
+  /** The H3 clip it belongs after on the timeline; without it, the clip goes to the end. */
+  afterClip: z.string().trim().min(1).max(200).optional(),
+}).strict();
+
+type TimelineItem = {clip?: unknown; start?: unknown; in?: unknown; out?: unknown};
+/** The timeline frame right after the first placement of a clip, or undefined (the editor then puts
+ *  the new clip at the end). The editor moves later clips to make room. Pure. */
+export function frameAfter(project: {timeline?: unknown}, clipId: string | undefined): number | undefined {
+  if (!clipId || !Array.isArray(project.timeline)) return undefined;
+  const placed = (project.timeline as TimelineItem[])
+    .filter(item => item?.clip === clipId && Number.isFinite(Number(item.start)) && Number(item.out) > Number(item.in))
+    .sort((left, right) => Number(left.start) - Number(right.start))[0];
+  return placed ? Number(placed.start) + Number(placed.out) - Number(placed.in) : undefined;
+}
 
 /**
  * Pick the local ComfyUI that actually serves the H3 Editor. Several local workers may be
@@ -36,7 +58,7 @@ export async function h3WorkerFor(pool: Pool, workspaceId: string) {
  * bridge exposes only the project read, clip bytes and note write that the analysis panel needs.
  * Every route requires current workspace membership and only talks to a local worker.
  */
-export async function h3EditorRoutes(app: FastifyInstance, pool: Pool) {
+export async function h3EditorRoutes(app: FastifyInstance, pool: Pool, store: DiskStore) {
   async function workerFor(workspaceId: string) {
     return h3WorkerFor(pool, workspaceId);
   }
@@ -85,5 +107,30 @@ export async function h3EditorRoutes(app: FastifyInstance, pool: Pool) {
       headers: {"content-type": "application/json"},
       body: JSON.stringify({ops: [{op: "add_note", fields: body}]}),
     });
+  });
+
+  /* Bring a video of this CreativeField project into the H3 project as footage, right after the
+     clip it was made from (the Film Studio previs clip). Creator role: it changes the H3 project. */
+  app.post("/api/v1/workspaces/:workspaceId/h3-editor/project/:name/import", async request => {
+    const {workspaceId, name} = projectParams.parse(request.params);
+    await member(pool, request, workspaceId, "creator");
+    const body = importBody.parse(request.body);
+    const asset = (await pool.query("SELECT storage_key,media_type FROM assets WHERE workspace_id=$1 AND project_id=$2 AND id=$3",
+      [workspaceId, body.projectId, body.assetId])).rows[0] as {storage_key: string; media_type: string} | undefined;
+    if (!asset) throw new HttpError(404, "That clip is not in this project");
+    if (asset.media_type !== "video") throw new HttpError(400, "Only a video can become an H3 clip");
+    const origin = await workerFor(workspaceId);
+    const project = await workerJson(origin, `/h3take/api/project/${encodeURIComponent(name)}`) as {timeline?: unknown};
+    const start = frameAfter(project, body.afterClip);
+    const form = new FormData();
+    form.append("name", body.name);
+    form.append("place", "true");
+    if (start !== undefined) form.append("start", String(start));
+    form.append("file", new Blob([await readFile(await store.file(workspaceId, asset.storage_key))], {type: "video/mp4"}), "previs.mp4");
+    const response = await fetch(`${origin}/h3take/api/project/${encodeURIComponent(name)}/import`, {method: "POST", body: form, signal: AbortSignal.timeout(180_000)});
+    const text = await response.text();
+    if (!response.ok) throw new HttpError(response.status === 404 ? 404 : 502, text.trim().slice(0, 500) || `H3 Editor answered ${response.status}`);
+    const result = JSON.parse(text) as {clip?: string; item?: string | null; frames?: number};
+    return {clip: result.clip, item: result.item ?? null, frames: result.frames ?? 0, start: start ?? null};
   });
 }

@@ -54,6 +54,8 @@ export async function blockoutClipRoutes(app: FastifyInstance, pool: Pool, store
           "-hide_banner", "-y",
           "-framerate", String(input.fps),
           "-i", join(directory, "frame-%05d.jpg"),
+          // H.264 in 4:2:0 needs even sides; a 1920x1088 scene at 1280 px wide is 725 px tall.
+          "-vf", "crop=trunc(iw/2)*2:trunc(ih/2)*2",
           "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
           "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-an",
           output,

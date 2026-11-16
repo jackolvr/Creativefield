@@ -1,4 +1,4 @@
-/* Image editor layout only. Visual styling stays in src/ds. */
+﻿/* Image editor layout only. Visual styling stays in src/ds. */
 .cf-editor { height: 100%; min-height: 0; }
 .cf-editor > .ds-page { height: 100%; min-height: 0; display: flex; flex-direction: column; gap: var(--gap-block); }
 .cf-editor .ds-split { flex: 1; min-height: 0; }
@@ -26,13 +26,10 @@
 .cf-editor-side .ds-panel { align-self: stretch; max-height: none; }
 .cf-layer-head { display: flex; align-items: center; gap: var(--gap-block); }
 .cf-editor-canvas[data-tool="brush"], .cf-editor-canvas[data-tool="eraser"] { cursor: none; }
-.cf-editor-selectionmodes {
-  position: absolute;
-  top: var(--space-4);
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 4;
-}
+/* The top-centre stack: selection modes (while a selection tool is on) and Quick upscale, never on top of each other. */
+.cf-editor-topstack { position: absolute; top: var(--space-4); left: 50%; transform: translateX(-50%); z-index: 6; display: flex; flex-direction: column; align-items: center; gap: var(--space-2); pointer-events: none; }
+.cf-editor-topstack > * { pointer-events: auto; }
+.cf-editor-selectionmodes { position: relative; }
 .cf-editor-subject {
   position: absolute;
   left: 50%;
@@ -66,3 +63,33 @@
   max-width: calc(100% - var(--space-8) - var(--space-8) - var(--space-2));
   max-height: calc(100% - var(--space-8) - var(--space-8) - var(--space-2));
 }
+
+/* Quick upscale: planned tiles and the live progress card float over the picture. */
+.cf-editor-quicklayer { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+.cf-editor-quicklayer > canvas { display: block; width: 100%; height: 100%; }
+.cf-editor-quickhud { position: absolute; left: 50%; bottom: var(--space-4); transform: translateX(-50%); z-index: 6; display: flex; flex-direction: column; align-items: center; gap: var(--space-1); width: auto; }
+.cf-editor-quickhud .ds-progress { width: min(196px, calc(100vw - var(--space-6))); }
+.cf-editor-quickhud .ds-progress { width: 100%; gap: var(--space-1); }
+.cf-editor-quickhud .ds-sparkle { display: none; }
+.cf-editor-quickhud .ds-progress__bar { align-self: stretch; width: 100%; }
+.cf-editor-quicklaunch { position: relative; }
+.cf-editor-quickchoices { position: absolute; top: calc(100% + var(--space-1)); left: 50%; display: flex; gap: var(--gap-inline); transform: translate(-50%, -4px); visibility: hidden; transition: transform var(--dur-fast) var(--ease), visibility var(--dur-fast) var(--ease); }
+.cf-editor-quicklaunch:hover .cf-editor-quickchoices, .cf-editor-quicklaunch:focus-within .cf-editor-quickchoices { visibility: visible; transform: translate(-50%, 0); }
+
+/* Modify prompt card, reference strip and drag target. */
+.cf-modify-title { display: flex; align-items: center; gap: var(--gap-inline); white-space: nowrap; }
+.cf-modify-card { position: relative; display: flex; flex-direction: column; gap: var(--gap-block); padding: var(--space-2); }
+.cf-modify-model-select { max-width: 120px; margin-left: var(--gap-inline); }
+.cf-modify-model-select .ds-inline { min-width: 0; }
+.cf-modify-model-select .ds-inline__select { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cf-modify-card .ds-prompt__label { display: none; }
+.cf-modify-refs { display: flex; align-items: center; gap: var(--gap-inline); flex-wrap: wrap; }
+.cf-modify-refs:empty { display: none; }
+.cf-modify-marks { display: flex; align-items: center; gap: var(--space-1); }
+.cf-modify-marks > .ds-meta:first-child, .cf-modify-marks > :first-child { flex: 1; min-width: 0; }
+.cf-modify-refs .ds-thumb { width: 64px; height: 64px; }
+.cf-modify-addref { align-self: center; }
+.cf-modify-actions { display: flex; align-items: center; gap: var(--gap-inline); width: 100%; }
+.cf-modify-actions__spacer { flex: 1; }
+.cf-modify-send { width: 36px; height: 36px; padding: 0; }
+

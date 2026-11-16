@@ -32,8 +32,23 @@ const SHADES: Record<NonNullable<SceneBlock["kind"]>, number> = {
   ground: 0x33373b,
 };
 
+/** The previs clip's shades (handoff look): light clay greys like a grey-box render, nearer things lighter. */
+const LIGHT_SHADES: Record<NonNullable<SceneBlock["kind"]>, number> = {
+  wall: 0xd6d8da,
+  background: 0xc4c7ca,
+  object: 0xe2e3e4,
+  ground: 0xcdd0d3,
+};
+
+export type SetLook = "studio" | "light";
+
 export function sceneBlockShade(kind: SceneBlock["kind"]): number {
   return SHADES[kind ?? "object"] ?? SHADES.object;
+}
+
+/** The same kinds in the previs clip's light greys. */
+export function previsBlockShade(kind: SceneBlock["kind"]): number {
+  return LIGHT_SHADES[kind ?? "object"] ?? LIGHT_SHADES.object;
 }
 
 /**
@@ -41,7 +56,7 @@ export function sceneBlockShade(kind: SceneBlock["kind"]): number {
  * (never passed to three.js as NaN), sizes are made positive, and a block is lifted so it
  * never cuts through the floor. The order is kept for stable mesh creation.
  */
-export function sceneBlockMeshes(blocks: readonly SceneBlock[] | undefined): SceneBlockMesh[] {
+export function sceneBlockMeshes(blocks: readonly SceneBlock[] | undefined, look: SetLook = "studio"): SceneBlockMesh[] {
   const meshes: SceneBlockMesh[] = [];
   for (const block of blocks ?? []) {
     if (!block) continue;
@@ -53,7 +68,7 @@ export function sceneBlockMeshes(blocks: readonly SceneBlock[] | undefined): Sce
       Math.max(MIN_SIZE_M, Math.abs(block.sizeZ)),
     ];
     const position: [number, number, number] = [block.xM, Math.max(size[1] / 2, block.yM), block.zM];
-    meshes.push({position, size, shade: sceneBlockShade(block.kind)});
+    meshes.push({position, size, shade: look === "light" ? previsBlockShade(block.kind) : sceneBlockShade(block.kind)});
     if (meshes.length >= MAX_SCENE_BLOCKS) break;
   }
   return meshes;

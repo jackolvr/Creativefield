@@ -1,13 +1,13 @@
-import type {ImageEditEntry} from "../../team/navigation";
+﻿import type {ImageEditEntry} from "../../team/navigation";
 import {dragLayerTransform,applyLayerTransform,transformCorner,type TransformHandle,type TransformPoint} from "./free-transform";
 import "../../ds/modify-controls.css";
 import {cloneLayerMask,effectiveLayerMaskKey} from "./layer-mask";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignStartHorizontal, AlignStartVertical, Brush, Paintbrush, Crop, Eraser, FlipHorizontal2, Hand, ImagePlus, Lasso, Maximize2, Move, Pipette, Redo2, Square, Folder, FolderOpen, Contrast, Grid3x3, Lock, SlidersHorizontal, ScanSearch, Link, SquarePlus, Menu as MenuIcon, SquareDashed, Trash2, Undo2, WandSparkles, ZoomIn } from "lucide-react";
-import {
+import { AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignStartHorizontal, AlignStartVertical, ArrowUpRight, Brush, Paintbrush, Crop, Eraser, FlipHorizontal2, Hand, ImagePlus, Lasso, Maximize2, Move, Pipette, Pencil, Plus, Redo2, Square, Folder, FolderOpen, Contrast, Grid3x3, Lock, SlidersHorizontal, ScanSearch, Link, SquarePlus, Menu as MenuIcon, SquareDashed, Trash2, Undo2, WandSparkles, ZoomIn , X} from "lucide-react";
+import { MediaPickerDialog, DropTarget,
   AnnotationEditor, ActionBar, CommandBar, ContextMenu, Working, clipboardFile, DockStack, DockPanel, DockTabs, FloatingPanel, FxIcon, InlineSelect, InlineSlider, LabeledRow, MenuButton, Block, Button, ColorPicker, ForegroundBackground, Canvas, Checkbox, InfoButton, ShortcutSheet, type ShortcutGroup, OptionsBar, StatusBar, TextField, Dialog, EmptyState, IconButton, LayerList, LayerRow, Meta, Page, PanelSection, PromptField,
-  ContactSheet, ChoiceDialog,
-  Notice, CropHandles, TransformHandles, ParamButton, Row, SegmentedTabs, SliderField, Split, Stage, Swatches, Thumb, ThumbGrid, ToolRail, Toolbar, UploadSlot, useToast, Progress,
+  ContactSheet,
+  Notice, Badge, CropHandles, TransformHandles, ParamButton, Row, SegmentedTabs, SliderField, Split, Stage, Swatches, Thumb, ThumbGrid, ToolRail, Toolbar, UploadSlot, useToast, Progress,
   useMediaEditor,
 } from "../../ds";
 import { assetUrl, workspacePath, type Asset, type AssetPage, type Call, type Project, type Run, type Workspace, type CharacterRecord } from "../../team/api";
@@ -25,7 +25,7 @@ import {
 import { blankCanvas, cloneBitmap, getBitmap, loadBitmap, setBitmap, sizeOf } from "./bitmaps";
 import { filterChannels, layerCanvas, renderDoc, type Channels } from "./render";
 import { AI_BUSY, AI_LABELS, aiInstruction, selectionInstruction, padRect, requestsObjectRemoval, requestsObjectResize, resolveEditMode, resolveEditScope, type EditScope, type EditIntent, type AiMode, type Rect } from "./ai";
-import {annotationGuide,annotationInstruction,annotationStorageKey,imageAnnotationsSchema,type ImageAnnotation} from "../annotations";
+import {annotationCropInstruction,annotationGuide,annotationInstruction,annotationsInCrop,annotationStorageKey,imageAnnotationsSchema,type ImageAnnotation} from "../annotations";
 import {canAttachSelectionGuide,editInstructionFor,mapAnnotationReferenceMentions,modifyReferenceBindings,selectionGuideFor} from "./modify-references";
 import {insertReferenceMention,usesH3Prompt} from "../../team/prompt-reference";
 import {plainProblem} from "../../team/problems";
@@ -47,7 +47,7 @@ import { allShape, selectionInLayerSpace, selectLayerPixels, cropSelectionMask, 
 import "./editor.css";
 import { channelPixels, type PreviewChannel } from "./channel-preview";
 import { reorderVisible } from "../../ds/dock-layout";
-import {featherTile, planQuickTiles, visibleDocumentRect} from "./quick-upscale";
+import {DETAIL_TILE_PX, detailShare, featherTile, guardedPatch, MIN_DETAIL_SHARE, planQuickTiles, tileDetail, visibleDocumentRect, type QuickTile} from "./quick-upscale";
 import type {PreservationRecord} from "../../capabilities/edit-preservation";
 import {PrecisionReview,type PrecisionResult} from "./PrecisionReview";
 import {cancelReferenceEdit,finishReferenceEdit,referenceEditFor} from "../../team/reference-return";
@@ -95,7 +95,7 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
   ] },
   { title: "Brush & color", items: [
     { keys: ["[", "]"], label: "Brush size" }, { keys: ["1–9", "0"], label: "Layer opacity" }, { keys: ["X"], label: "Swap colors" }, { keys: ["D"], label: "Default colors" },
-    { keys: ["Ctrl+T"], label: "Free transform" }, { keys: ["R"], label: "Rotate 90°" }, { keys: ["Shift+R"], label: "Rotate −90°" }, { keys: ["Alt+click"], label: "Pick color" }, { keys: ["Shift+click"], label: "Straight line" },
+    { keys: ["Ctrl+T"], label: "Free transform" }, { keys: ["R"], label: "Rotate 90°" }, { keys: ["Shift+R"], label: "Rotate âˆ’90°" }, { keys: ["Alt+click"], label: "Pick color" }, { keys: ["Shift+click"], label: "Straight line" },
   ] },
   { title: "Selection", items: [
     { keys: ["Shift"], label: "Add" }, { keys: ["Alt"], label: "Subtract" }, { keys: ["Shift+Alt"], label: "Intersect" },
@@ -113,12 +113,12 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
     { keys: ["Ctrl+Z"], label: "Undo" }, { keys: ["Ctrl+Shift+Z"], label: "Redo" },
   ] },
   { title: "View & file", items: [
-    { keys: ["Ctrl+0"], label: "Fit" }, { keys: ["Ctrl+1"], label: "100%" }, { keys: ["Ctrl++", "Ctrl+−"], label: "Zoom" }, { keys: ["Wheel"], label: "Zoom with wheel" },
+    { keys: ["Ctrl+0"], label: "Fit" }, { keys: ["Ctrl+1"], label: "100%" }, { keys: ["Ctrl++", "Ctrl+âˆ’"], label: "Zoom" }, { keys: ["Wheel"], label: "Zoom with wheel" },
     { keys: ["Ctrl+S"], label: "Save" }, { keys: ["Ctrl+Shift+S"], label: "Download PNG" },
   ] },
   { title: "Mouse & gestures", items: [
     { keys: ["Shift+drag"], label: "Move on one axis" }, { keys: ["Esc"], label: "Cancel the current gesture" },
-    { keys: ["Alt+↑", "Alt+↓"], label: "Reorder panels" }, { keys: ["Drag"], label: "Panel grip" },
+    { keys: ["Alt+â†‘", "Alt+â†“"], label: "Reorder panels" }, { keys: ["Drag"], label: "Panel grip" },
   ] },
 ];
 
@@ -131,14 +131,23 @@ const BLANKS: Array<{ id: string; label: string; w: number; h: number }> = [
 /** The ComfyUI inpaint workflow, offered only when its route is implemented and a worker is ready. */
 export type InpaintRoute = { manifest: CapabilityManifestV2; workerId: string; routeId: string };
 const floor8 = (n: number) => Math.max(8, Math.floor(n / 8) * 8);
+const QUICK_UPSCALE_PROMPT = "Rebuild only this tile section as a photorealistic, high-detail image. Use the reference image as the whole-frame context: preserve the exact composition, framing, lighting, colours and identity, but replace blur, mush and compression with clean natural micro-detail, sharp realistic textures and crisp edges. Do not add, remove or move objects. If this tile is mostly flat colour or a smooth gradient, keep it clean and do not invent texture or details.";
 const toPng = (canvas: HTMLCanvasElement) => new Promise<Blob>((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("The image could not be exported."))), "image/png"));
 
-export function ImageEditor({ workspace, project, userId, call, canEdit, authorized, inpaint, edit: defaultEdit, editOptions = [], segment, precision, maskedEdit, upscale, openAssetId, openEntry, freeInput = false, onOpenModels, onExitSubjectRelight }: { workspace: Workspace; project: Project; userId:string; call: Call; canEdit: boolean; authorized: boolean; inpaint?: InpaintRoute; edit?: InpaintRoute; editOptions?: InpaintRoute[]; /** SAM 3.1: select parts by name. */ segment?: InpaintRoute; precision?: InpaintRoute; maskedEdit?: InpaintRoute; upscale?: InpaintRoute; /** An image from the Library to open right away (from Create Image). */ openAssetId?: string; openEntry?: ImageEditEntry; freeInput?: boolean; onOpenModels?:()=>void; onExitSubjectRelight?:()=>void }) {
+const shortEditModelName=(title:string)=>title
+  .replace(/^Qwen Image 2\.1 guided edit$/i,"Qwen Edit")
+  .replace(/^MiniMax H3 Image with references$/i,"MiniMax H3")
+  .replace(/^MiniMax H3 Image$/i,"MiniMax H3")
+  .replace(/\s+with references$/i,"")
+  .replace(/\s+guided edit$/i,"");
+
+
+export function ImageEditor({ workspace, project, userId, call, canEdit, authorized, inpaint, edit: defaultEdit, editOptions = [], segment, precision, maskedEdit, upscale, detailUpscale, openAssetId, openEntry, freeInput = false, onOpenModels, onExitSubjectRelight }: { workspace: Workspace; project: Project; userId:string; call: Call; canEdit: boolean; authorized: boolean; inpaint?: InpaintRoute; edit?: InpaintRoute; editOptions?: InpaintRoute[]; /** SAM 3.1: select parts by name. */ segment?: InpaintRoute; precision?: InpaintRoute; maskedEdit?: InpaintRoute; upscale?: InpaintRoute; /** A prompt-capable detail upscaler; falls back to the plain upscaler. */ detailUpscale?: InpaintRoute; /** An image from the Library to open right away (from Create Image). */ openAssetId?: string; openEntry?: ImageEditEntry; freeInput?: boolean; onOpenModels?:()=>void; onExitSubjectRelight?:()=>void }) {
   const [editModelId,setEditModelId]=useState(defaultEdit?.manifest.id ?? editOptions[0]?.manifest.id ?? "");
   const editModelChosen=useRef(false);
   useEffect(()=>{if(!editModelChosen.current&&defaultEdit)setEditModelId(defaultEdit.manifest.id);},[defaultEdit?.manifest.id]);
   const edit=editOptions.find(option=>option.manifest.id===editModelId) ?? defaultEdit;
-  const [modelPicker,setModelPicker]=useState(false),[referenceTray,setReferenceTray]=useState(false);
+  const [referenceTray,setReferenceTray]=useState(false);
   const referenceAnchor=useRef<HTMLSpanElement>(null);
   const toast = useToast();
   const [hist, setHist] = useState<History | null>(null);
@@ -196,7 +205,16 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
   const annotationHandoff=useRef("");
   const [aiBusy, setAiBusy] = useState<AiMode | null>(null);
   const [upscaling,setUpscaling]=useState(false);
+  /** A Modify, Harmonize or Fill run that ended without a result: said in the panel until the next run. */
+  const [aiStop,setAiStop]=useState<{mode:AiMode;cancelled:boolean;error:string}|null>(null);
   const [quickProgress,setQuickProgress]=useState<{done:number;total:number}|null>(null);
+  const [quickTiles,setQuickTiles]=useState<QuickTile[]>([]);
+  /** Tiles a quick upscale left out of the model because they are flat colour (only enlarged). */
+  const [quickSkipped,setQuickSkipped]=useState<number[]>([]);
+  const [quickPreviews,setQuickPreviews]=useState<Array<HTMLCanvasElement|null>>([]);
+  const quickAbort=useRef(false);
+  const quickRun=useRef<string|null>(null);
+  const [quickScale,setQuickScale]=useState<2|4>(2);
   const [editIntent,setEditIntent]=useState<EditIntent>("auto");
   const [preserveOriginal,setPreserveOriginal]=useState(false);
   const [editScope,setEditScope]=useState<EditScope>("auto");
@@ -217,7 +235,7 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
   useEffect(()=>()=>{placementSequence.current++;placementAbort.current?.abort();},[workspace.id,project.id,openAssetId]);
   useEffect(()=>{setSwapCheck(null);setSwapOpen(false);},[workspace.id,project.id,openAssetId]);
   const hasReference=!!aiReference||extraReferences.some(Boolean)||!!aiCharacter;
-  function chooseReference(asset:Asset){clearCharacterPlacement();setCharacterSwap(false);setAiCharacter(null);if(referenceSlot===0)setAiReference(asset);else setExtraReferences(previous=>previous.map((value,index)=>index===referenceSlot-1?asset:value));setPreserveOriginal(false);setReferencePicker(false);}
+  function chooseReference(asset:Asset,slot=referenceSlot){clearCharacterPlacement();setCharacterSwap(false);setAiCharacter(null);if(slot===0)setAiReference(asset);else setExtraReferences(previous=>previous.map((value,index)=>index===slot-1?asset:value));setPreserveOriginal(false);setReferencePicker(false);}
   const [preserveMode,setPreserveMode]=useState("replace");
   const [precisionContext,setPrecisionContext]=useState(32),[precisionFeather,setPrecisionFeather]=useState(.5);
   const [precisionSettings,setPrecisionSettings]=useState(false);
@@ -274,6 +292,7 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
   const savePending = useRef(false);
   const downloadPending = useRef(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const quickOverlayRef = useRef<HTMLCanvasElement>(null);
   const outlineCanvasRef = useRef<HTMLCanvasElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const view = useRef({ zoom: 1, x: 0, y: 0 });
@@ -591,10 +610,10 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
     form.append("file", new File([await toPng(canvas)], name, { type: "image/png" }));
     return call<Asset>(workspacePath(workspace.id, `assets?projectId=${project.id}&kind=${kind}${parentId?`&parentId=${encodeURIComponent(parentId)}`:""}${intermediate?"&purpose=intermediate":""}`), "POST", form);
   }
-  async function addReference(file:File|null){
+  async function addReference(file:File|null,slot=referenceSlot){
     if(!file||!canEdit||!authorized||referenceBusy)return;setReferencePicker(false);setReferenceBusy(true);
     const url=URL.createObjectURL(file);
-    try{const {bitmap,w,h}=await loadBitmap(url);if(w*h>67108864)throw new Error("The reference image is too large.");const c=blankCanvas(w,h);c.getContext("2d")!.drawImage(bitmap,0,0);const asset=await uploadPng(c,"image",`${file.name.replace(/\.[^.]+$/,"")}.png`);if(alive.current){chooseReference(asset);}}
+    try{const {bitmap,w,h}=await loadBitmap(url);if(w*h>67108864)throw new Error("The reference image is too large.");const c=blankCanvas(w,h);c.getContext("2d")!.drawImage(bitmap,0,0);const asset=await uploadPng(c,"image",`${file.name.replace(/\.[^.]+$/,"")}.png`);if(alive.current){chooseReference(asset,slot);}}
     catch(error){if(alive.current)toast((error as Error).message);}
     finally{URL.revokeObjectURL(url);if(alive.current)setReferenceBusy(false);}
   }
@@ -720,8 +739,18 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
   async function requestAi(mode:AiMode){
     if(annotations.length&&!subjectRelight){
       if(referenceBusy||placingCharacter){toast("Wait for the reference to finish loading.");return;}
-      if(!edit){toast("A ready guided image edit workflow is required for annotations.");return;}
-      return runAi("modify");
+      if(!edit){toast("A ready image edit workflow is required for annotations.");return;}
+      /* Every edit model understands one box on its own crop; several boxes in one guide picture got mixed up
+         (FLUX 3 Klein made the bench rusty instead of the tank). So each box is its own run, one after another,
+         each on the canvas the previous one left. */
+      const all=annotations;
+      for(const [index,box] of all.entries()){
+        const before=liveDoc.current;
+        if(!await runAi("modify",[box])){if(index>0)toast(`${index} of ${all.length} annotations were applied.`);return;}
+        // Wait for the new layer to render, so the next box starts from it.
+        for(let wait=0;wait<40&&liveDoc.current===before;wait++)await new Promise(resolve=>setTimeout(resolve,25));
+      }
+      return;
     }
     if(characterSwap&&!doc?.selection){toast("Select the person to replace before swapping.");return;}
     if(placingCharacter){toast("Wait for the character reference pack to finish loading.");return;}
@@ -774,24 +803,30 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
 
   /** Model input may use opaque context. Modify restores the frozen element alpha
       and cropped placement; fill/harmonize retain their existing composite behavior. */
-  async function runAi(mode: AiMode) {
-    if (!doc || !edit || aiBusy || !canEdit || !authorized || (mode !== "harmonize" && !aiPrompt.trim()&&!annotations.length)) return;
-    const annotated=annotations.length>0;
-    const wholeImage=annotated||(!characterPlacement&&mode!=="harmonize"&&resolveEditScope(editScope,aiPrompt,!!doc.selection)==="image");
-    const sel = wholeImage?null:doc.selection;
+  /** `only`: the annotation boxes of this run (one at a time, see requestAi). The run starts from the
+   *  canvas as it is now, so a second box builds on the first box's layer. True when a layer was added. */
+  async function runAi(mode: AiMode, only?: ImageAnnotation[]) {
+    const boxes=only??annotations,live=liveDoc.current??doc;
+    if (!live || !edit || aiBusy || !canEdit || !authorized || (mode !== "harmonize" && !aiPrompt.trim()&&!boxes.length)) return false;
+    const annotated=boxes.length>0;
+    setAiStop(null);
+    const wholeImage=annotated||(!characterPlacement&&mode!=="harmonize"&&resolveEditScope(editScope,aiPrompt,!!live.selection)==="image");
+    const sel = wholeImage?null:live.selection;
     let runEdit=mode==="modify"&&!annotated&&sel&&edit.manifest.id==="qwen-image-21-edit"&&maskedEdit?maskedEdit:edit;
-    if (mode === "fill" && !sel) return;
-    const snapshot = wholeImage?{...doc,selection:null}:doc;
+    if (mode === "fill" && !sel) return false;
+    const snapshot = wholeImage?{...live,selection:null}:live;
     setAiBusy(mode);
     try {
-      if(annotated&&!edit.manifest.inputs.some(input=>input.id==="reference_image"))throw new Error("Choose a guided image edit workflow to apply annotations.");
+      // One box is edited on its own crop by any model; several boxes share one crop and a guide picture.
+      const singleBox=boxes.length===1;
+      if(annotated&&!singleBox&&!edit.manifest.inputs.some(input=>input.id==="reference_image"))throw new Error("Choose a guided image edit workflow to apply several annotations at once.");
       if(annotated&&aiCharacter)throw new Error("Annotations and saved character packs cannot be combined in this workflow. Choose image references instead.");
       const integration=mode==="harmonize"?harmonizePatch(snapshot):null;
-      let matte=annotated?annotationMatte(snapshot,annotations):mode==="fill"?null:integration?.matte??freezeModifyMatte(snapshot,wholeImage||!!characterPlacement||!!sel?"composite":"layer");
+      let matte=annotated?annotationMatte(snapshot,boxes):mode==="fill"?null:integration?.matte??freezeModifyMatte(snapshot,wholeImage||!!characterPlacement||!!sel?"composite":"layer");
       const bounds=matte?.bounds??(sel?selectionBounds(sel):null);
       if(sel&&!bounds)return;
       const resizeSelection=!!sel&&mode==="modify"&&!annotated&&requestsObjectResize(aiPrompt);
-      const region:Rect=annotated?{x:0,y:0,w:snapshot.width,h:snapshot.height}:integration?.region??(bounds?padRect(bounds,snapshot.width,snapshot.height,mode==="fill"||resizeSelection?0.35:0.15):{x:0,y:0,w:snapshot.width,h:snapshot.height});
+      const region:Rect=annotated?padRect(matte!.bounds,snapshot.width,snapshot.height,0.35):integration?.region??(bounds?padRect(bounds,snapshot.width,snapshot.height,mode==="fill"||resizeSelection?0.35:0.15):{x:0,y:0,w:snapshot.width,h:snapshot.height});
       if(resizeSelection)matte=resizePatchMatte(snapshot.width,snapshot.height,region);
       // H3 repaints the whole crop: blend it over a soft ramp beyond the selection instead of a hard cut.
       if(matte&&sel&&!annotated&&!resizeSelection&&usesH3Prompt(runEdit.manifest)){
@@ -804,7 +839,9 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
       crop.getContext("2d")!.drawImage(flat, region.x, region.y, region.w, region.h, 0, 0, region.w, region.h);
       const source = await uploadPng(crop, "image", `${mode}-source-${Date.now()}.png`);
       let reference=source;
-      if(annotated)reference=await uploadPng(annotationGuide(flat,annotations),"image",`annotation-guide-${Date.now()}.png`);
+      // The boxes as they sit in the crop: one box needs no guide, several get one drawn on the crop.
+      const cropAnnotations=annotated?annotationsInCrop(boxes,{width:snapshot.width,height:snapshot.height},region):annotations;
+      if(annotated&&!singleBox)reference=await uploadPng(annotationGuide(crop,cropAnnotations),"image",`annotation-guide-${Date.now()}.png`);
       else if(aiReference)reference=aiReference;
       else if(integration){const target=blankCanvas(region.w,region.h);target.getContext("2d")!.drawImage(integration.target,region.x,region.y,region.w,region.h,0,0,region.w,region.h);reference=await uploadPng(target,"image",`harmonize-element-${Date.now()}.png`);}
       const explicitReferences=[aiReference,...extraReferences];
@@ -820,7 +857,7 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
         selectionGuide=await uploadPng(guide,"image",`selection-guide-${Date.now()}.png`);
       }
       const mentionStyle=usesH3Prompt(runEdit.manifest)?"h3" as const:"plain" as const;
-      const mapped=modifyReferenceBindings(source.id,annotated?reference.id:selectionGuide?.id,explicitReferences.map(asset=>asset?.id??null),ports,aiPrompt,mentionStyle);
+      const mapped=modifyReferenceBindings(source.id,annotated?(singleBox?undefined:reference.id):selectionGuide?.id,explicitReferences.map(asset=>asset?.id??null),ports,aiPrompt,mentionStyle);
       const inputs:Record<string,string>=mapped.inputs;
       if(runEdit===maskedEdit&&sel){
         const mask=cropSelectionMask(sel,region);if(!mask)throw new Error("The selected mask is unavailable.");
@@ -828,7 +865,8 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
         if(mask.hasProtectedPixels)inputs.edit_mask=(await uploadPng(mask.canvas,"mask",`modify-mask-${Date.now()}.png`)).id;
         else runEdit=edit;
       }
-      if(!annotated&&!selectionGuide&&!explicitReferences.some(Boolean)&&(!!integration||edit.manifest.inputs.some(i=>i.id==="reference_image"&&i.required)))inputs.reference_image=reference.id;
+      // A model that requires a second picture (Qwen) gets the crop itself; a single annotation box has no guide.
+      if((!annotated||singleBox)&&!selectionGuide&&!explicitReferences.some(Boolean)&&(!!integration||edit.manifest.inputs.some(i=>i.id==="reference_image"&&i.required)))inputs.reference_image=reference.id;
       const elementInputs=!annotated&&aiCharacter?characterEditBindings(aiCharacter,edit.manifest,project.id):{};
       for(const port of Object.keys(elementInputs))delete inputs[port];
       const referenceCount=aiCharacter?aiCharacter.referencePack.references.length:hasReference?(aiReference?1:0)+extraReferences.filter(Boolean).length:0;
@@ -846,15 +884,20 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
         delete inputs.reference_image_3;
       }
       const referenceInstruction=referenceSheet?identityReferenceSheetInstruction(characterIds.length):aiCharacter?identityReferenceInstruction(referenceCount):"";
-      const mappedAnnotations=annotated?mapAnnotationReferenceMentions(annotations,source.id,reference.id,explicitReferences.map(asset=>asset?.id??null),ports,mentionStyle):annotations;
-      const instruction=annotated?annotationInstruction(mappedAnnotations,mapped.prompt):[aiInstruction(mode,characterPlacement&&aiCharacter?characterPlacementInstruction(aiCharacter.name,aiPrompt):selectionInstruction(mapped.prompt,!!sel)),selectionGuide?selectionGuideFor(mentionStyle):"",referenceInstruction].filter(Boolean).join(" ");
+      const mappedAnnotations=annotated?mapAnnotationReferenceMentions(cropAnnotations,source.id,singleBox?undefined:reference.id,explicitReferences.map(asset=>asset?.id??null),ports,mentionStyle):annotations;
+      const instruction=annotated?(singleBox?annotationCropInstruction(mappedAnnotations[0],mapped.prompt):annotationInstruction(mappedAnnotations,mapped.prompt)):[aiInstruction(mode,characterPlacement&&aiCharacter?characterPlacementInstruction(aiCharacter.name,aiPrompt):selectionInstruction(mapped.prompt,!!sel)),selectionGuide?selectionGuideFor(mentionStyle):"",referenceInstruction].filter(Boolean).join(" ");
       // Modify must follow the user's actual instruction, including replacement details.
       // Fibo's optional prompt enhancer can rewrite those details before the edit model sees them.
       const directPrompt=(mode==="modify"||annotated||explicitReferences.some(Boolean))&&edit.manifest.controls.some(control=>control.id==="improve_prompt");
-      const done = await runAndWait(runEdit, inputs, { prompt: editInstructionFor(mentionStyle,instruction),...(directPrompt?{improve_prompt:false}:{}) },undefined,elementInputs);
+      // An annotation crop is small: ask for the model's smallest size of at least four times its pixels, not its
+      // large default (MiniMax H3 Image defaults to 12 MP and took 400 s for a 0.1 MP crop).
+      const sizeOptions=annotated?(runEdit.manifest.controls.find(control=>control.id==="megapixels")?.options??[]).map(Number).filter(Number.isFinite).sort((a,b)=>a-b):[];
+      const cropMegapixels=sizeOptions.length?sizeOptions.find(option=>option>=Math.max(1,region.w*region.h*4/1e6))??sizeOptions[sizeOptions.length-1]:undefined;
+      const done = await runAndWait(runEdit, inputs, { prompt: editInstructionFor(mentionStyle,instruction),...(directPrompt?{improve_prompt:false}:{}),...(cropMegapixels!==undefined?{megapixels:cropMegapixels}:{}) },undefined,elementInputs);
       if (!done || !alive.current) return;
       const out = done.output_ids[0];
-      if (done.state !== "succeeded" || !out) throw new Error(done.error || `${AI_LABELS[mode]} did not finish.`);
+      // A run that was cancelled (Jobs menu) or failed is said in the panel, not only in a passing toast.
+      if (done.state !== "succeeded" || !out) { setAiStop({mode,cancelled:done.state==="canceled",error:done.error??""}); return false; }
       if(!annotated&&(hasReference||aiCharacter)){const referenceId=aiCharacter?.referencePack.references[0]?.assetId??reference.id;setSwapCheck({source:source.id,reference:referenceId,result:out,label:aiCharacter?.name??"Edited result",run:done.id});}
       const { bitmap } = await loadBitmap(assetUrl(workspace.id, out));
       // Qwen scales each source dimension to its latent grid without cropping; MiniMax H3 Image keeps
@@ -881,8 +924,10 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
       thumbs.current.clear();
       refreshBitmaps();
       toast(`${AI_LABELS[mode]} added as a new layer`);
+      return true;
     } catch (e) {
       toast((e as Error).message);
+      return false;
     } finally {
       if (alive.current) setAiBusy(null);
     }
@@ -922,44 +967,218 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
     }catch(error){toast((error as Error).message);}finally{if(alive.current){setUpscaling(false);setAiBusy(null);}}
   }
 
-  async function quickUpscaleVisible(){
-    if(!doc||!upscale||aiBusy||!canEdit||!authorized)return;
+  async function quickUpscaleVisible(mode:"fast"|"detail"="fast"){
+    const engine=mode==="detail"?(detailUpscale??upscale):upscale;
+    if(!doc||!engine||aiBusy||!canEdit||!authorized)return;
     const canvas=canvasRef.current,stage=stageRef.current;
     if(!canvas||!stage)return;
     const snapshot=doc,signature=imageSignature(doc);
     const canvasRect=canvas.getBoundingClientRect(),stageRect=stage.getBoundingClientRect();
     const visible=visibleDocumentRect(canvasRect,stageRect,doc.width,doc.height);
     if(!visible){toast("Show part of the picture before quick upscaling.");return;}
-    const tiles=planQuickTiles(visible,doc.width,doc.height,{screenPx:512,documentPerScreen:doc.width/Math.max(1,canvasRect.width),maxTiles:24});
+    const documentPerScreen=doc.width/Math.max(1,canvasRect.width);
+    // Detailed: as few runs as the redraw size allows (DETAIL_TILE_PX); Fast keeps small, quick tiles.
+    const screenPx=mode==="detail"?Math.max(96,Math.round(DETAIL_TILE_PX/documentPerScreen)):Math.max(240,Math.min(420,Math.round(Math.min(stageRect.width,stageRect.height)*0.36)));
+    const tiles=planQuickTiles(visible,doc.width,doc.height,{screenPx,documentPerScreen,maxTiles:24});
     if(!tiles.length)return;
+    /* A zoomed-in region gets the model's full 4x output; a full or large canvas stays at 2x. */
+    const big=doc.width*doc.height>4_000_000;
+    const maxFactor=Math.min(8192/doc.width,8192/doc.height,Math.sqrt(67108864/(doc.width*doc.height)));
+    if(maxFactor<2){toast("This canvas is too large to upscale further.");return;}
+    const factor:2|4=mode==="detail"?2:!big&&maxFactor>=4&&visible.w*visible.h<doc.width*doc.height*.75?4:2;
+    const scaled=scaleViewport(snapshot,factor*100,8192);
     const flat=blankCanvas(doc.width,doc.height);renderDoc(flat.getContext("2d")!,{...snapshot,selection:null},{background:true});
-    const result=blankCanvas(doc.width,doc.height),resultContext=result.getContext("2d")!;
-    setUpscaling(true);setAiBusy("modify");setQuickProgress({done:0,total:tiles.length});
+    /* The detailed model gets the whole picture as context and only the tile as its working image. */
+    let contextId:string|undefined;
+    if(mode==="detail"&&engine.manifest.inputs.some(input=>input.id==="reference_image")){
+      const context=await uploadPng(flat,"image",`quick-upscale-context-${Date.now()}.png`,undefined,true);
+      contextId=context.id;
+    }
+    const result=blankCanvas(scaled.width,scaled.height),resultContext=result.getContext("2d")!;
+    quickAbort.current=false;quickRun.current=null;setQuickTiles(tiles);setQuickSkipped([]);setQuickPreviews(new Array(tiles.length).fill(null));setQuickScale(factor);setUpscaling(true);setAiBusy("modify");setQuickProgress({done:0,total:tiles.length});
     try{
       for(const [index,tile] of tiles.entries()){
         if(!alive.current)return;
         const source=blankCanvas(tile.source.w,tile.source.h);
         source.getContext("2d")!.drawImage(flat,tile.source.x,tile.source.y,tile.source.w,tile.source.h,0,0,tile.source.w,tile.source.h);
+        // Detailed mode: the original's own texture decides. A tile that is nearly all flat colour is simply
+        // enlarged (no model pass, nothing to invent, much faster); a mixed tile is guarded after the pass.
+        const detail=mode==="detail"?tileDetail(source):null;
+        if(detail&&detailShare(detail)<MIN_DETAIL_SHARE){
+          setQuickSkipped(current=>[...current,index]);
+          const patch=blankCanvas(tile.source.w*factor,tile.source.h*factor);
+          patch.getContext("2d")!.drawImage(source,0,0,patch.width,patch.height);
+          featherTile(patch,tile.feather*factor);
+          resultContext.drawImage(patch,tile.source.x*factor,tile.source.y*factor);
+          setQuickPreviews(current=>{const next=[...current];next[index]=patch;return next;});
+          setQuickProgress({done:index+1,total:tiles.length});
+          continue;
+        }
         const asset=await uploadPng(source,"image",`quick-upscale-${Date.now()}-${index}.png`,undefined,true);
-        const done=await runAndWait(upscale,{source_image:asset.id},{scale_by:0.5});
-        if(!done||!alive.current)return;
+        const hasPrompt=engine.manifest.controls.some(control=>control.id==="prompt");
+        const hasDetail=engine.manifest.controls.some(control=>control.id==="denoise");
+        const hasMegapixels=engine.manifest.controls.some(control=>control.id==="megapixels");
+        const detailControls:Record<string,unknown>=hasPrompt?{prompt:QUICK_UPSCALE_PROMPT}:{};
+        if(hasDetail)detailControls.denoise=0.3;
+        /* Speed: the smallest size that still covers the tile at its target resolution (usually 1 MP, not 2),
+           and fewer steps, since the model refines a picture it is given instead of inventing one. */
+        if(hasMegapixels){const options=(engine.manifest.controls.find(control=>control.id==="megapixels")?.options??[]).map(Number).filter(Number.isFinite).sort((x,y)=>x-y);const need=tile.source.w*tile.source.h*factor*factor/1e6;detailControls.megapixels=options.find(option=>option>=need)??options[options.length-1]??2;}
+        if(engine!==upscale&&engine.manifest.controls.some(control=>control.id==="steps"))detailControls.steps=16;
+        if(engine.manifest.id==="minimax-h3-image-edit")detailControls.aspect_ratio="Same as Picture 1";
+        if(engine===upscale)detailControls.scale_by=factor===4?1:0.5;
+        const done=await runAndWait(engine,{source_image:asset.id,...(contextId?{reference_image:contextId}:{})},detailControls,run=>{quickRun.current=run.id;});
+        if(quickAbort.current||!alive.current)return;
+        if(!done)return;
         if(done.state!=="succeeded"||!done.output_ids[0])throw new Error(done.error||"Quick upscale did not finish.");
-        const {bitmap}=await loadBitmap(assetUrl(workspace.id,done.output_ids[0]));
-        const patch=blankCanvas(tile.source.w,tile.source.h);
-        patch.getContext("2d")!.drawImage(bitmap,0,0,tile.source.w,tile.source.h);
-        featherTile(patch,tile.feather);
-        resultContext.drawImage(patch,tile.x,tile.y);
+        /* MiniMax rebuilds the tile at its 4 MP working size; the existing AI upscaler then takes
+           that rebuilt detail to the real 2x/4x document resolution. */
+        let outputId=done.output_ids[0];
+        const {bitmap}=await loadBitmap(assetUrl(workspace.id,outputId));
+        const patch=blankCanvas(tile.source.w*factor,tile.source.h*factor);
+        const patchContext=patch.getContext("2d")!;
+        const wholeAspect=doc.width/doc.height,bmpAspect=bitmap.width/bitmap.height;
+        /* Some edit models answer with the whole frame even when only a tile is wanted.
+           In that case keep only the rebuilt region that belongs to this tile. */
+        if(mode==="detail"&&contextId&&Math.abs(bmpAspect-wholeAspect)<0.06){
+          patchContext.drawImage(bitmap,
+            tile.source.x/doc.width*bitmap.width,tile.source.y/doc.height*bitmap.height,
+            tile.source.w/doc.width*bitmap.width,tile.source.h/doc.height*bitmap.height,
+            0,0,patch.width,patch.height);
+        }else{
+          patchContext.drawImage(bitmap,0,0,patch.width,patch.height);
+        }
+        // Keep the rebuilt detail only where the original has texture and the answer still matches it.
+        if(detail){const guarded=guardedPatch(source,patch,detail);patchContext.clearRect(0,0,patch.width,patch.height);patchContext.drawImage(guarded,0,0);}
+        featherTile(patch,tile.feather*factor);
+        resultContext.drawImage(patch,tile.source.x*factor,tile.source.y*factor);
+        setQuickPreviews(current=>{const next=[...current];next[index]=patch;return next;});
         setQuickProgress({done:index+1,total:tiles.length});
       }
+      if(quickAbort.current)return;
       if(!liveDoc.current||imageSignature(liveDoc.current)!==signature)throw new Error("The image changed. The quick upscale was not applied.");
       const key=`bmp:quick-upscale:${crypto.randomUUID()}`;setBitmap(key,result);
       setHist(old=>{
         if(!old||imageSignature(old.present)!==signature)return old;
-        return commit(old,addAiResultLayer(old.present,key,"Quick upscale"));
+        return commit(old,addAiResultLayer(scaled,key,"Quick upscale"));
       });
-      thumbs.current.clear();refreshBitmaps();toast(`Quick upscale applied to the visible area (${tiles.length} tile${tiles.length===1?"":"s"}).`);
+      requestAnimationFrame(()=>{const v=view.current;view.current={zoom:v.zoom/factor,x:v.x/factor,y:v.y/factor};applyView();});
+      thumbs.current.clear();refreshBitmaps();toast(`Quick upscale ${mode==="detail"?"detailed":"fast"} ${factor}× applied to the visible area (${tiles.length} tile${tiles.length===1?"":"s"}).`);
     }catch(error){toast((error as Error).message);}
-    finally{if(alive.current){setUpscaling(false);setAiBusy(null);setQuickProgress(null);}}
+    finally{quickRun.current=null;if(alive.current){setUpscaling(false);setAiBusy(null);setQuickProgress(null);setQuickTiles([]);setQuickPreviews([]);}}
+  }
+
+  /* Marked regions (annotations) on the picture: numbered dashed frames over the canvas, following zoom and pan.
+     Drawn on the quick-upscale overlay while no upscale runs; never part of the image. */
+  useEffect(()=>{
+    if(!annotations.length||quickProgress||subjectRelight)return;
+    let frame=0;
+    const draw=()=>{
+      const stage=stageRef.current,canvas=canvasRef.current,overlay=quickOverlayRef.current;
+      if(stage&&canvas&&overlay&&doc){
+        const stageRect=stage.getBoundingClientRect(),canvasRect=canvas.getBoundingClientRect(),dpr=Math.min(2,window.devicePixelRatio||1);
+        const width=Math.max(1,Math.round(stageRect.width*dpr)),height=Math.max(1,Math.round(stageRect.height*dpr));
+        if(overlay.width!==width||overlay.height!==height){overlay.width=width;overlay.height=height;}
+        const ctx=overlay.getContext("2d")!;ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,stageRect.width,stageRect.height);
+        const root=getComputedStyle(document.documentElement),accent=root.getPropertyValue("--accent").trim()||"#2fa8ff";
+        const left=canvasRect.left-stageRect.left,top=canvasRect.top-stageRect.top;
+        ctx.font=`600 11px ${getComputedStyle(document.body).fontFamily}`;
+        annotations.forEach((box,index)=>{
+          const x=left+box.x*canvasRect.width,y=top+box.y*canvasRect.height,w=box.w*canvasRect.width,h=box.h*canvasRect.height;
+          ctx.strokeStyle=accent;ctx.lineWidth=1.5;ctx.setLineDash([6,4]);ctx.globalAlpha=.95;ctx.strokeRect(x,y,w,h);ctx.setLineDash([]);
+          ctx.fillStyle=accent;ctx.fillRect(x,y-18,18,18);ctx.fillStyle="#0b1520";ctx.fillText(String(index+1),x+5.5,y-5);
+        });
+        ctx.globalAlpha=1;
+      }
+      frame=requestAnimationFrame(draw);
+    };
+    frame=requestAnimationFrame(draw);
+    return()=>{cancelAnimationFrame(frame);const overlay=quickOverlayRef.current;if(overlay)overlay.getContext("2d")?.clearRect(0,0,overlay.width,overlay.height);};
+  },[annotations,quickProgress,subjectRelight,doc]);
+
+  useEffect(()=>{
+    if(!quickTiles.length||!quickProgress)return;
+    let frame=0;
+    const draw=(now:number)=>{
+      const stage=stageRef.current,canvas=canvasRef.current,overlay=quickOverlayRef.current;
+      if(!stage||!canvas||!overlay){frame=requestAnimationFrame(draw);return;}
+      const stageRect=stage.getBoundingClientRect(),canvasRect=canvas.getBoundingClientRect();
+      const dpr=Math.min(2,window.devicePixelRatio||1);
+      const width=Math.max(1,Math.round(stageRect.width*dpr)),height=Math.max(1,Math.round(stageRect.height*dpr));
+      if(overlay.width!==width||overlay.height!==height){overlay.width=width;overlay.height=height;}
+      const ctx=overlay.getContext("2d")!;
+      ctx.setTransform(dpr,0,0,dpr,0,0);
+      ctx.clearRect(0,0,stageRect.width,stageRect.height);
+      const root=getComputedStyle(document.documentElement);
+      const accent=root.getPropertyValue("--accent").trim()||"#2fa8ff";
+      const soft=root.getPropertyValue("--accent-soft").trim()||"rgba(47,168,255,.12)";
+      const left=canvasRect.left-stageRect.left,top=canvasRect.top-stageRect.top;
+      const xScale=canvasRect.width/Math.max(1,doc?.width??1),yScale=canvasRect.height/Math.max(1,doc?.height??1);
+      const rounded=(x:number,y:number,w:number,h:number,r:number)=>{
+        const radius=Math.min(r,w/2,h/2);
+        ctx.beginPath();ctx.moveTo(x+radius,y);ctx.arcTo(x+w,y,x+w,y+h,radius);ctx.arcTo(x+w,y+h,x,y+h,radius);ctx.arcTo(x,y+h,x,y,radius);ctx.arcTo(x,y,x+w,y,radius);ctx.closePath();
+      };
+      for(const [index,tile] of quickTiles.entries()){
+        const preview=quickPreviews[index];
+        const x=left+tile.source.x*xScale,y=top+tile.source.y*yScale;
+        const w=Math.max(1,tile.source.w*xScale),h=Math.max(1,tile.source.h*xScale);
+        const done=index<quickProgress.done,active=index===quickProgress.done&&quickProgress.done<quickProgress.total;
+        if(preview){ctx.save();rounded(x,y,w,h,8);ctx.clip();ctx.drawImage(preview,x,y,w,h);ctx.restore();}
+        ctx.save();
+        rounded(x,y,w,h,8);
+        if(active){
+          ctx.clip();
+          ctx.fillStyle=soft;ctx.globalAlpha=.18;ctx.fillRect(x,y,w,h);
+          /* A soft light band sweeps the working tile, so the active square reads as busy. */
+          const sweep=x-40+((now/820)%1)*(w+80);
+          const sheen=ctx.createLinearGradient(sweep-42,0,sweep+42,0);
+          sheen.addColorStop(0,"rgba(255,255,255,0)");sheen.addColorStop(.5,"rgba(255,255,255,.28)");sheen.addColorStop(1,"rgba(255,255,255,0)");
+          ctx.globalAlpha=1;ctx.fillStyle=sheen;ctx.fillRect(x,y,w,h);
+          ctx.restore();
+          ctx.save();
+          rounded(x+1,y+1,w-2,h-2,7);
+          ctx.strokeStyle=accent;ctx.lineWidth=1.6;ctx.globalAlpha=.95;
+          ctx.shadowColor=accent;ctx.shadowBlur=9;ctx.stroke();ctx.shadowBlur=0;
+          /* Corner ticks: a camera-focus mark instead of a plain box. */
+          const tick=Math.min(14,w*.22,h*.22);
+          ctx.lineWidth=2;ctx.globalAlpha=1;ctx.beginPath();
+          ctx.moveTo(x+4,y+4+tick);ctx.lineTo(x+4,y+4);ctx.lineTo(x+4+tick,y+4);
+          ctx.moveTo(x+w-4-tick,y+4);ctx.lineTo(x+w-4,y+4);ctx.lineTo(x+w-4,y+4+tick);
+          ctx.moveTo(x+4,y+h-4-tick);ctx.lineTo(x+4,y+h-4);ctx.lineTo(x+4+tick,y+h-4);
+          ctx.moveTo(x+w-4-tick,y+h-4);ctx.lineTo(x+w-4,y+h-4);ctx.lineTo(x+w-4,y+h-4-tick);
+          ctx.stroke();
+          const scan=y+8+((now/1400)%1)*(h-16);
+          ctx.globalAlpha=.22;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(x+8,scan);ctx.lineTo(x+w-8,scan);ctx.stroke();
+        }else if(done&&quickSkipped.includes(index)){
+          /* Flat colour: only enlarged, no model pass. A quiet frame and the word, no check mark. */
+          ctx.strokeStyle=accent;ctx.globalAlpha=.18;ctx.lineWidth=1;ctx.stroke();
+          ctx.globalAlpha=.75;ctx.fillStyle=root.getPropertyValue("--text-secondary").trim()||"#898a8b";
+          ctx.font=`500 11px ${getComputedStyle(document.body).fontFamily}`;ctx.fillText("Flat",x+9,y+18);
+        }else if(done){
+          ctx.strokeStyle=accent;ctx.globalAlpha=.4;ctx.lineWidth=1;ctx.stroke();
+          ctx.globalAlpha=.9;ctx.strokeStyle=accent;ctx.lineWidth=1.8;ctx.beginPath();
+          ctx.moveTo(x+9,y+14);ctx.lineTo(x+13,y+18);ctx.lineTo(x+20,y+9);ctx.stroke();
+        }else{
+          ctx.strokeStyle=accent;ctx.globalAlpha=.32;ctx.lineWidth=1;ctx.setLineDash([4,7]);ctx.stroke();ctx.setLineDash([]);
+        }
+        ctx.restore();
+      }
+      ctx.globalAlpha=1;
+      frame=requestAnimationFrame(draw);
+    };
+    frame=requestAnimationFrame(draw);
+    return()=>{
+      cancelAnimationFrame(frame);
+      const overlay=quickOverlayRef.current;
+      if(overlay)overlay.getContext("2d")?.clearRect(0,0,overlay.width,overlay.height);
+    };
+  },[quickTiles,quickPreviews,quickProgress,quickSkipped,doc?.width,doc?.height]);
+
+  async function cancelQuickUpscale(){
+    quickAbort.current=true;
+    const id=quickRun.current;
+    /* Stop the picture at once; the API cancellation catches up with the worker. */
+    setQuickProgress(null);setQuickTiles([]);setQuickPreviews([]);setUpscaling(false);setAiBusy(null);
+    if(id){try{await call(workspacePath(workspace.id,`runs/${id}/cancel`),"POST",{});}catch{/* the run may already be ending */}}
   }
 
   async function analyseObjects(prompt=subject.trim()||"object"){
@@ -2127,8 +2346,6 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
         >
           {transforming?<><Meta>Transforming layer: {layer?.name??"Layer"} · Alt scales from center · Shift snaps 15°</Meta><Button variant="secondary" onClick={()=>finishTransform(false)}>Cancel transform</Button><Button variant="primary" onClick={()=>finishTransform(true)}>Apply transform</Button></>:<>
           <Button variant="secondary" disabled={!canEdit} onClick={() => setPicker(true)}><ImagePlus size={16} />Import image</Button>
-          {upscale&&doc&&canEdit&&authorized&&<Button variant="secondary" disabled={!!aiBusy||!!quickProgress} onClick={()=>void quickUpscaleVisible()} title="Upscale the visible area in overlapping tiles">Quick upscale</Button>}
-          {quickProgress&&<Progress label="Quick upscale" value={Math.round(100*quickProgress.done/quickProgress.total)} detail={`Tile ${quickProgress.done} of ${quickProgress.total}`}/>}
           <Button variant="secondary" onClick={()=>selectionAction("all")}>Select all</Button>
           {(doc.selection||quickMask)&&<Button variant="secondary" disabled={!doc.selection} onClick={()=>selectionAction("clear")}>Deselect</Button>}
           {layer&&layer.kind!=="adjust"&&!layer.locks?.position&&!quickMask&&!maskEdit&&canEdit&&authorized&&!aiBusy&&<Button variant="secondary" title={`Free transform ${layer.name} (Ctrl+T)`} onClick={beginTransform}>Transform layer</Button>}
@@ -2170,7 +2387,7 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
               onDragOver={event=>{if(!subjectRelight&&edit&&canEdit&&authorized&&!aiBusy&&(event.dataTransfer.types.includes(CHARACTER_DRAG_TYPE)||event.dataTransfer.types.includes("text/plain")))event.preventDefault();}}
               onDrop={event=>{const id=characterDropId(event.dataTransfer.getData(CHARACTER_DRAG_TYPE),event.dataTransfer.getData("text/plain"));if(!id)return;event.preventDefault();event.stopPropagation();const canvas=canvasRef.current;if(!canvas)return;const bounds=canvas.getBoundingClientRect();if(bounds.width<=0||bounds.height<=0||event.clientX<bounds.left||event.clientX>bounds.right||event.clientY<bounds.top||event.clientY>bounds.bottom){toast("Drop the character inside the image.");return;}void placeCharacter(id,{x:(event.clientX-bounds.left)/bounds.width,y:(event.clientY-bounds.top)/bounds.height});}}
               onPointerDown={event=>{if(event.button===0&&event.target===event.currentTarget&&!transformSession.current){if(doc.selection)lastSelection.current=doc.selection;if(doc.selection||doc.selectedId)apply({...doc,selection:null,selectedId:null});setMulti([]);}}}
-              status={aiBusy ? <Working label={upscaling?(quickProgress?`Quick upscale · ${quickProgress.done}/${quickProgress.total}`:"Upscaling…"):AI_BUSY[aiBusy]} /> : selecting ? <Working label="Selecting…" /> : undefined} rail={transforming?undefined:(
+              status={quickProgress?undefined:aiBusy ? <Working label={upscaling?"Upscaling…":AI_BUSY[aiBusy]} /> : selecting ? <Working label="Selecting…" /> : undefined} rail={transforming?undefined:(
               <div className="cf-editor-rail">
                 <ToolRail label="Tool" value={tool} onChange={next=>{setTool(next);if(next==="maskBrush")setMaskEdit(null);}} items={[
                   { id: "crop", label: "Crop (C)", icon: <Crop size={18} /> },
@@ -2196,15 +2413,27 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
               <div ref={ringRef} className="ds-brushring" aria-hidden />
               <canvas ref={canvasRef} tabIndex={0} aria-label="Image" data-tool={tool === "brush" && altHeld && !quickMask ? "eyedropper" : tool} className="cf-editor-canvas" onPointerDown={down} onPointerMove={moveEvent} onPointerUp={up} onPointerCancel={cancelGesture} onLostPointerCapture={() => { if (!preview.current?.poly) cancelGesture(); }} onPointerLeave={() => { if (ringRef.current) ringRef.current.style.display = "none";if(hoveredObject.current>=0){hoveredObject.current=-1;paint(doc);} }} />
               <canvas ref={outlineCanvasRef} className="cf-editor-outline" aria-hidden="true" />
+              <div className="cf-editor-quicklayer"><canvas ref={quickOverlayRef} className="cf-editor-quickoverlay" aria-hidden="true" /></div>
+              {/* One stack at the top centre: the selection modes while a selection tool is on, Quick upscale under them. */}
+              <div className="cf-editor-topstack">
+              {SELECT_TOOLS.includes(tool) && <div className="cf-editor-selectionmodes ds-card">
+                <SegmentedTabs quiet label="Selection mode" value={selMode} onChange={setSelMode} items={[{ id: "replace", label: "New" }, { id: "add", label: "Add" }, { id: "subtract", label: "Subtract" }, { id: "intersect", label: "Intersect" }]} />
+              </div>}
+              {(upscale||detailUpscale)&&doc&&canEdit&&authorized&&<div className="cf-editor-quicklaunch">
+                <Button variant="surface" disabled={!!aiBusy||!!quickProgress} onClick={()=>void quickUpscaleVisible("fast")} title="Fast AI upscale of the visible area">Quick upscale</Button>
+                <div className="cf-editor-quickchoices" role="group" aria-label="Quick upscale mode">
+                  <Button variant="surface" disabled={!!aiBusy||!!quickProgress} onClick={()=>void quickUpscaleVisible("fast")} title="Fast: ESRGAN detail and real 2x/4x resolution">Fast</Button>
+                  <Button variant="surface" disabled={!!aiBusy||!!quickProgress||!detailUpscale} onClick={()=>void quickUpscaleVisible("detail")} title="Detailed: a light redraw of textured tiles, flat areas only enlarged, 2x canvas">Detailed</Button>
+                </div>
+              </div>}
+              </div>
+              {quickProgress&&<div className="cf-editor-quickhud"><Progress floating label={`Quick upscale ${quickScale}×`} value={Math.round(100*quickProgress.done/quickProgress.total)} detail={`Tile ${quickProgress.done} of ${quickProgress.total}${quickSkipped.length?` · ${quickSkipped.length} flat, only enlarged`:""}`} action={<IconButton label="Cancel quick upscale" onClick={()=>void cancelQuickUpscale()}><X size={14}/></IconButton>} /></div>}
               {transforming&&layer&&cropScreen.w>0&&<TransformHandles box={{x:layer.x,y:layer.y,w:layer.w*layer.scale,h:layer.h*layer.scale,rotation:layer.rotation}} viewport={cropScreen} width={doc.width} height={doc.height}
                 onStart={startTransformDrag} onMove={moveTransformDrag} onEnd={()=>{transformDrag.current=null;}} onCancel={cancelTransformDrag} onNudge={nudgeTransform} onApply={()=>finishTransform(true)} onDiscard={()=>finishTransform(false)}/>}
               {tool==="crop"&&cropScreen.w>0&&<CropHandles box={cropPreview??fullCrop(dims(doc))} viewport={cropScreen} width={doc.width} height={doc.height}
                 onStart={(handle,event)=>{if(event.button!==0||aiBusy)return;const rect=cropBox.current??fullCrop(dims(doc));cropDrag.current=handle as CropHandle;cropStart.current={rect,point:point(event)};capture(event);}}
                 onMove={moveEvent} onEnd={up} onCancel={cancelGesture}
                 onNudge={(handle,dx,dy)=>{const rect=cropBox.current??fullCrop(dims(doc));setCropBox(dragCrop(rect,handle as CropHandle,{x:0,y:0},{x:dx,y:dy},dims(doc),autoExtend));paint(doc);}}/>}
-              {SELECT_TOOLS.includes(tool) && <div className="cf-editor-selectionmodes ds-card">
-                <SegmentedTabs quiet label="Selection mode" value={selMode} onChange={setSelMode} items={[{ id: "replace", label: "New" }, { id: "add", label: "Add" }, { id: "subtract", label: "Subtract" }, { id: "intersect", label: "Intersect" }]} />
-              </div>}
               {tool === "subject" && segment && !selecting && !aiBusy && <div className="cf-editor-subject">
                 <Meta>Click an object to select it automatically.</Meta>
                 <TextField label="Select subject" placeholder="face, hair, jacket, sleeve…" value={subject} onChange={setSubject} onKeyDown={(e) => { if (e.key === "Enter") void selectSubject(); }} />
@@ -2294,24 +2523,37 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
                 </DockPanel>
               );
               if (id === "ai") return (
-                <DockPanel key={id} {...drag} title={subjectRelight?"Relight":"Modify"} end={!subjectRelight&&edit&&<Button variant="ghost" className="cf-modify-model" disabled={!!aiBusy} onClick={()=>setModelPicker(true)}>{edit.manifest.title}</Button>}>
+                <DockPanel key={id} {...drag} title={<span className="cf-modify-title">{subjectRelight?"Relight":"Modify"}</span>} end={!subjectRelight&&edit?<span className="cf-modify-model-select"><InlineSelect label="Edit model" value={editModelId} disabled={!!aiBusy} options={editOptions.map(option=>({value:option.manifest.id,label:shortEditModelName(option.manifest.title)}))} onChange={id=>{editModelChosen.current=true;setEditModelId(id);}} /></span>:undefined}>
                 <Block>
+                  {aiStop&&<Notice priority={35} title={aiStop.cancelled?`${AI_LABELS[aiStop.mode]} was cancelled`:`${AI_LABELS[aiStop.mode]} did not finish`} details={aiStop.error||undefined}
+                    actions={<Button variant="secondary" disabled={!!aiBusy} onClick={()=>{const mode=aiStop.mode;setAiStop(null);void requestAi(mode);}}>Try again</Button>}>Nothing was added to the picture.</Notice>}
                   {!modifyRouteReady && modifyFix && <Notice priority={40} title="AI Modify is not ready" actions={<Button variant="secondary" disabled={!canEdit||!authorized} onClick={modifyFix.run}>{modifyFix.label}</Button>}>{modifyUnavailableReason} The editor stays available while setup is incomplete.</Notice>}
                   <AnnotationEditor open={!!annotationSrc} src={annotationSrc} initial={annotations} onClose={()=>setAnnotationSrc("")} onApply={boxes=>{setAnnotations(boxes);setEditScope("image");setEditIntent("modify");setAnnotationSrc("");if(openAssetId)sessionStorage.setItem(annotationStorageKey(workspace.id,openAssetId),JSON.stringify(boxes));}}/>
-                  <PromptField textareaRef={aiPromptArea} tokens={["@Image 1","@Image 2","@Image 3"]} compact labelOutside label="What should change" placeholder="e.g. change the winter scene to summer" value={aiPrompt} disabled={!!aiBusy} onChange={setAiPrompt} />
-                  {subjectRelight&&<><Meta>Select and review the subject mask before relighting. Pixels outside the effective mask use the precision workflow.</Meta><Button variant="secondary" disabled={!!aiBusy} onClick={()=>{if(openAssetId)sessionStorage.removeItem(subjectRelightKey(workspace.id,project.id,openAssetId));onExitSubjectRelight?.();}}>Use normal editing</Button>{(precisionRun||precisionResult||precisionError)&&<Button variant="secondary" onClick={()=>setPrecisionOpen(true)}>Review edit</Button>}</>}
-                  {aiBusy ? (
-                    <Working label={upscaling?"Upscaling…":AI_BUSY[aiBusy]} hint="ComfyUI is generating" />
-                  ) : (
-                    <Toolbar className="cf-editor-ai-actions">
-                      {!subjectRelight&&(edit?.manifest.inputs.some(input=>input.id==="reference_image")||[aiReference,...extraReferences].some(Boolean))&&<span ref={referenceAnchor} className="cf-modify-reference"><Button variant="secondary" disabled={referenceBusy} onClick={()=>setReferenceTray(true)}>Add reference{[aiReference,...extraReferences].filter(Boolean).length>0&&<span className="cf-modify-reference__count">{[aiReference,...extraReferences].filter(Boolean).length}</span>}</Button></span>}
-                      {!subjectRelight&&edit?.manifest.inputs.some(input=>input.id==="reference_image")&&<Button disabled={!!aiBusy} onClick={openAnnotations}>{annotations.length?`Annotations · ${annotations.length}`:"Annotations"}</Button>}
-                      {subjectRelight&&precision&&<Button variant="primary" disabled={selecting||!canEdit||!authorized||!aiPrompt.trim()} onClick={()=>{if(doc.selection)void requestAi("modify");else if(segment)void selectSubject();else{setTool("lasso");toast("Draw around the subject, then choose Relight subject.");}}}>{selecting?"Selecting subject…":doc.selection?"Relight subject":segment?"Select subject":"Select subject with lasso"}</Button>}
-                      {!subjectRelight&&<Button variant="primary"
-                        disabled={!modifyRouteReady||!canEdit||!authorized||(!aiPrompt.trim()&&!annotations.length)}
-                        onClick={() => void requestAi("modify")}>Modify</Button>}
-                    </Toolbar>
-                  )}
+                  <DropTarget wrap boxed className="cf-modify-card" label="Drop images here" disabled={subjectRelight||!!aiBusy||referenceBusy} onFiles={files=>{const file=files.find(item=>item.type.startsWith("image/"));if(file){const slot=Math.max(0,[aiReference,...extraReferences].findIndex(asset=>!asset));void addReference(file,slot);}}}>
+                    {!subjectRelight&&(edit?.manifest.inputs.some(input=>input.id==="reference_image")||[aiReference,...extraReferences].some(Boolean))&&<div className="cf-modify-refs">
+                      {[aiReference,...extraReferences].map((asset,index)=>asset&&<Thumb key={`${index}:${asset.id}`} src={assetUrl(workspace.id,asset.id)} label={`Reference ${index+1} · insert @Image ${index+1}`} badge={<Badge>{index+1}</Badge>} numbered onActivate={()=>mentionReference(index)} onRemove={()=>{if(index===0)setAiReference(null);else setExtraReferences(old=>old.map((value,i)=>i===index-1?null:value));}}/>)}
+                    </div>}
+                    {/* Marked regions are visible here and on the picture; Edit reopens them, Remove clears them. */}
+                    {!subjectRelight&&annotations.length>0&&<div className="cf-modify-marks">
+                      <Meta>{annotations.length===1?"1 region marked":`${annotations.length} regions marked`}</Meta>
+                      <IconButton label="Edit marked regions" disabled={!!aiBusy} onClick={openAnnotations}><Pencil size={14} /></IconButton>
+                      <IconButton label="Remove marked regions" disabled={!!aiBusy} onClick={()=>{setAnnotations([]);if(openAssetId)sessionStorage.removeItem(annotationStorageKey(workspace.id,openAssetId));}}><X size={14} /></IconButton>
+                    </div>}
+                    <PromptField textareaRef={aiPromptArea} tokens={["@Image 1","@Image 2","@Image 3"]} compact label="Describe your changes" placeholder="Describe your changes (use @ to reference images or assets)" value={aiPrompt} disabled={!!aiBusy} onChange={setAiPrompt} />
+                    {subjectRelight&&<><Meta>Select and review the subject mask before relighting. Pixels outside the effective mask use the precision workflow.</Meta><Button variant="secondary" disabled={!!aiBusy} onClick={()=>{if(openAssetId)sessionStorage.removeItem(subjectRelightKey(workspace.id,project.id,openAssetId));onExitSubjectRelight?.();}}>Use normal editing</Button>{(precisionRun||precisionResult||precisionError)&&<Button variant="secondary" onClick={()=>setPrecisionOpen(true)}>Review edit</Button>}</>}
+                    {/* A quick upscale has its own progress pill on the canvas: Modify keeps its tools in view, only disabled. */}
+                    {aiBusy&&!upscaling ? (
+                      <Working label={AI_BUSY[aiBusy]} hint="ComfyUI is generating" />
+                    ) : (
+                      <Toolbar className="cf-modify-actions">
+                        {!subjectRelight&&<IconButton label="Add reference" disabled={referenceBusy||!!aiBusy} onClick={()=>{const slot=[aiReference,...extraReferences].findIndex(asset=>!asset);if(slot>=0){setReferenceSlot(slot);setReferencePicker(true);}else toast("Three references are already in use.");}}><Plus size={18} /></IconButton>}
+                        {!subjectRelight&&<IconButton label="Annotations" aria-pressed={annotations.length>0} disabled={!!aiBusy} onClick={openAnnotations}><Pencil size={18} /></IconButton>}
+                        <span className="cf-modify-actions__spacer" />
+                        {subjectRelight&&precision&&<Button variant="primary" disabled={selecting||!canEdit||!authorized||!aiPrompt.trim()} onClick={()=>{if(doc.selection)void requestAi("modify");else if(segment)void selectSubject();else{setTool("lasso");toast("Draw around the subject, then choose Relight subject.");}}}>{selecting?"Selecting subject…":doc.selection?"Relight subject":segment?"Select subject":"Select subject with lasso"}</Button>}
+                        {!subjectRelight&&<Button variant="accent" className="cf-modify-send" aria-label="Modify" disabled={!!aiBusy||!modifyRouteReady||!canEdit||!authorized||(!aiPrompt.trim()&&!annotations.length)} onClick={() => void requestAi("modify")}><ArrowUpRight size={18} /></Button>}
+                      </Toolbar>
+                    )}
+                  </DropTarget>
                 </Block>
                 </DockPanel>
               );
@@ -2437,22 +2679,14 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
         <ThumbGrid label="References">{[aiReference,...extraReferences].map((asset,index)=>asset&&<Thumb key={`${index}:${asset.id}`} src={assetUrl(workspace.id,asset.id)} label={`Reference ${index+1} · insert @Image ${index+1}`} onActivate={()=>mentionReference(index)} onRemove={()=>{if(index===0)setAiReference(null);else setExtraReferences(old=>old.map((value,i)=>i===index-1?null:value));}}/>)}</ThumbGrid>
         <Button variant="secondary" disabled={referenceBusy||!edit?.manifest.inputs.some(input=>input.id==="reference_image")||[aiReference,...extraReferences].every(Boolean)} onClick={()=>{setReferenceSlot([aiReference,...extraReferences].findIndex(asset=>!asset));setReferencePicker(true);}}>Add another</Button>
       </FloatingPanel>
-      <ChoiceDialog open={modelPicker} title="Edit model" value={edit?.manifest.id} options={editOptions.map(option=>({value:option.manifest.id,label:option.manifest.title,note:option.manifest.inputs.some(input=>input.id==="reference_image")?undefined:"This workflow does not accept additional references."}))} onPick={id=>{editModelChosen.current=true;setEditModelId(id);setModelPicker(false);}} onClose={()=>setModelPicker(false)}/>
     </div>
   );
 }
 
 function AssetPicker({title="Add image", open, assets, workspace, canEdit, onFile, onClose, onPick }: {title?:string; open: boolean; assets: Asset[]; workspace: string; canEdit: boolean; onFile: (file: File | null) => void; onClose: () => void; onPick: (asset: Asset) => void }) {
-  return (
-    <Dialog open={open} title={title} onClose={onClose} footer={<Button variant="secondary" onClick={onClose}>Close</Button>}>
-      <UploadSlot compact label="From this device" hint="Drop a file or choose one" accept={title==="Reference image"?"image/*":"image/*,.psd,.psb"} disabled={!canEdit} onFile={onFile} />
-      {assets.length > 0 && (
-        <ThumbGrid label="Project images">
-          {assets.map((a) => (
-            <Thumb key={a.id} src={assetUrl(workspace, a.id)} label={a.name} onSelect={() => onPick(a)} />
-          ))}
-        </ThumbGrid>
-      )}
-    </Dialog>
-  );
+  /* The shared picker (MediaPickerDialog): this device is the first tile, the project's pictures follow. */
+  return <MediaPickerDialog open={open} title={title} onClose={onClose} disabled={!canEdit}
+    items={assets.map((asset) => ({ id: asset.id, src: assetUrl(workspace, asset.id), label: asset.name }))}
+    onPick={(id) => { const asset = assets.find((item) => item.id === id); if (asset) onPick(asset); }}
+    upload={canEdit ? { accept: title === "Reference image" ? "image/*" : "image/*,.psd,.psb", kinds: ["image"], onFile } : undefined} />;
 }

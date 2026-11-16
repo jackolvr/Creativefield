@@ -89,6 +89,7 @@ import {
   Pill,
   PresetCard,
   PresetGrid,
+  MediaPickerDialog,
   Progress,
   PromptField,
   Row,
@@ -383,7 +384,7 @@ export default function Showcase() {
       </Section>
 
       <Section title="Navigation">
-        <JobQueueMenu items={[{id:"shot",title:"A cinematic character performance with a deliberately long workflow name",status:"Rendering",progress:.42},{id:"edit",title:"Image edit",status:"Queued"}]} onRefresh={()=>{}} onSelect={()=>{}} onAll={()=>{}}/>
+        <JobQueueMenu items={[{id:"shot",title:"A cinematic character performance with a deliberately long workflow name",status:"Rendering",progress:.42,cancellable:true},{id:"edit",title:"Image edit",status:"Queued",cancellable:true}]} onCancel={async()=>{}} onRefresh={()=>{}} onSelect={()=>{}} onAll={()=>{}}/>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <a className="ds-navlink" href="#ds">Inactive</a>
           <a className="ds-navlink" aria-current="page" href="#ds">Active</a>
@@ -801,6 +802,9 @@ export default function Showcase() {
           <DropTarget label="Drop a cast card into the scene" hint="The chosen cast sets the character reference for this shot." onDrop={() => {}}>
             <Meta>Frozen lake · dawn</Meta>
           </DropTarget>
+          <DropTarget wrap boxed label="Drop images here" onFiles={() => {}}>
+            <div style={{ padding: 12 }}><Meta>A composer box with its own content (FotoField Modify): drag an image file over it.</Meta></div>
+          </DropTarget>
         </div>
       </Section>
 
@@ -1215,6 +1219,8 @@ export default function Showcase() {
         <div style={{ display: "grid", gap: 12, maxWidth: 420 }}>
           <Progress label="Rendering" value={42} />
           <Progress label="Queued" value={null} />
+          <MediaPickerDemo />
+          <div style={{ width: 220 }}><Progress floating label="Quick upscale 4×" value={37} detail="Tile 5 of 15" /></div>
           <Notice title="Generation failed">Out of memory in node 52 (WanImageToVideo). Try 480p or a shorter clip.</Notice>
           <Notice tone="info" title="Nothing here yet">Your generations will appear here.</Notice>
           <div style={{ display: "flex", gap: 6 }}>
@@ -1242,4 +1248,15 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
       {children}
     </section>
   );
+}
+
+/** The shared library dialog: this device first, then the project's pictures. */
+function MediaPickerDemo() {
+  const [open, setOpen] = useState(false);
+  return <>
+    <Button variant="secondary" onClick={() => setOpen(true)}>Open the media picker</Button>
+    <MediaPickerDialog open={open} title="Reference image" onClose={() => setOpen(false)} onPick={() => setOpen(false)}
+      items={["/reels/wan22-i2v-5b.png", "/reels/wan22-i2v-5b.png"].map((src, index) => ({ id: String(index), src, label: `Picture ${index + 1}` }))}
+      upload={{ accept: "image/*", kinds: ["image"], onFile: () => setOpen(false) }} />
+  </>;
 }

@@ -1,6 +1,6 @@
 import {useEffect,useRef,useState} from "react";
 import {JobQueueMenu} from "../ds";
-import {type Call,type Workspace} from "./api";
+import {workspacePath,type Call,type Workspace} from "./api";
 import {runLabel} from "./state";
 import {emptyJobQueue,monitorJobQueue,jobQueueTitle,type JobQueueSnapshot,type JobQueueRun} from "./job-queue";
 
@@ -30,8 +30,9 @@ export function JobQueueIndicator({workspace,call,authorized,titles,onOpenRun,ve
   const newest=[...state.runs].sort((a,b)=>b.created_at.localeCompare(a.created_at)).slice(0,8);
   const preparations=[...state.preparations].sort((a,b)=>b.created_at.localeCompare(a.created_at)).slice(0,4);
   const items=[
-    ...newest.map(run=>({id:run.id,title:jobQueueTitle(run.capability_id,titles),status:[runLabel[run.state]??"Working",run.take?`Take ${run.take}`:null,since(run.created_at)].filter(Boolean).join(" · "),detail:run.subject?`“${run.subject}”`:undefined,progress:state.progress[run.id]})),
+    ...newest.map(run=>({id:run.id,title:jobQueueTitle(run.capability_id,titles),status:[runLabel[run.state]??"Working",run.take?`Take ${run.take}`:null,since(run.created_at)].filter(Boolean).join(" · "),detail:run.subject?`“${run.subject}”`:undefined,progress:state.progress[run.id],cancellable:run.state!=="cancel_requested"})),
     ...preparations.map(preparation=>({id:`pose-${preparation.id}`,title:preparationTitle(preparation.state),status:`${preparationState(preparation.state)} · ${since(preparation.created_at)}`,detail:preparation.source_name?`from ${preparation.source_name}`:undefined,selectable:false})),
   ];
-  return <JobQueueMenu total={state.total} items={items} loading={state.loading} error={state.error} onRefresh={()=>void monitor.current?.refresh()} onSelect={id=>{const run=state.runs.find(item=>item.id===id);if(run)onOpenRun(run);}} onAll={()=>{location.hash="library/runs";}}/>;
+  return <JobQueueMenu total={state.total} items={items} loading={state.loading} error={state.error} onRefresh={()=>void monitor.current?.refresh()} onSelect={id=>{const run=state.runs.find(item=>item.id===id);if(run)onOpenRun(run);}} onAll={()=>{location.hash="library/runs";}}
+    onCancel={async id=>{await call(workspacePath(workspace.id,`runs/${encodeURIComponent(id)}/cancel`),"POST",{});await monitor.current?.refresh();}}/>;
 }

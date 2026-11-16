@@ -1121,13 +1121,13 @@ export function Button({
   buttonRef,
   disabledReason,
   ...rest
-}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "ghost" | "brand";buttonRef?:RefObject<HTMLButtonElement>;disabledReason?:string }) {
+}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "surface" | "accent" | "ghost" | "brand";buttonRef?:RefObject<HTMLButtonElement>;disabledReason?:string }) {
   const button=<button type="button" ref={buttonRef} {...rest} className={cx("ds-btn", `ds-btn--${variant}`, rest.className)} />;
   return rest.disabled&&disabledReason?<Tooltip content={disabledReason} focusable>{button}</Tooltip>:button;
 }
 
 /* LinkButton: a Button that is a link (downloads, external pages). Same looks, same hug-the-text width. */
-export function LinkButton({ variant = "secondary", ...rest }: AnchorHTMLAttributes<HTMLAnchorElement> & { variant?: "primary" | "secondary" | "ghost" | "brand" }) {
+export function LinkButton({ variant = "secondary", ...rest }: AnchorHTMLAttributes<HTMLAnchorElement> & { variant?: "primary" | "secondary" | "surface" | "accent" | "ghost" | "brand" }) {
   return <a {...rest} className={cx("ds-btn", `ds-btn--${variant}`, rest.className)} />;
 }
 
@@ -1586,6 +1586,53 @@ export function ShotTile({
 }
 
 /* Small square reference images. Interactive thumbs are checkable; read-only thumbs stay quiet. */
+/** One item a MediaPickerDialog offers. */
+export type PickerItem = { id: string; src: string; label: string; video?: boolean; disabled?: boolean; info?: ReactNode };
+
+/**
+ * The one dialog for choosing a picture or clip from the project, with this device as the first tile
+ * (rule 24). Every screen that opens a library uses it: FotoField's image and reference pickers,
+ * Keyframes, and every "Choose from library" (TeamChoice). The upload tile has the size of a picture;
+ * search appears from 13 items, and Load more when the caller pages.
+ */
+export function MediaPickerDialog({ open, title, onClose, items, selected, onPick, upload, onLoadMore, loadingMore = false, loadMoreError, disabled = false, emptyText = "Add a picture from this device, or make one first." }: {
+  open: boolean;
+  title: string;
+  onClose: () => void;
+  items: PickerItem[];
+  selected?: string;
+  onPick: (id: string) => void;
+  /** The first tile: a file from this device. Left out where nothing can be uploaded. */
+  upload?: { accept: string; kinds?: Array<"image" | "video" | "audio">; label?: string; hint?: string; onFile: (file: File) => void };
+  onLoadMore?: () => void;
+  loadingMore?: boolean;
+  loadMoreError?: string;
+  disabled?: boolean;
+  emptyText?: string;
+}) {
+  const [query, setQuery] = useState("");
+  const shown = query.trim() ? items.filter((item) => item.label.toLowerCase().includes(query.trim().toLowerCase())) : items;
+  return (
+    <Dialog wide open={open} title={title} onClose={onClose}>
+      {/* Clips play while the pointer is on them, so a clip is chosen by what it shows. */}
+      <div className="ds-mediapicker"
+        onMouseOver={(event) => { const video = (event.target as HTMLElement).closest(".ds-thumb")?.querySelector("video"); if (video && video.paused) void video.play().catch(() => {}); }}
+        onMouseOut={(event) => { const tile = (event.target as HTMLElement).closest(".ds-thumb"); if (tile && !tile.contains(event.relatedTarget as Node | null)) { const video = tile.querySelector("video"); if (video) { video.pause(); video.currentTime = 0; } } }}>
+        {items.length > 12 && <SearchField label={`Search ${title.toLowerCase()}`} value={query} onChange={setQuery} placeholder="Search by name" />}
+        {upload || shown.length ? (
+          <ThumbGrid label={title}>
+            {upload && !query.trim() && <UploadSlot tile label={upload.label ?? "From this device"} hint={upload.hint ?? "Choose, drop or paste"} accept={upload.accept} kinds={upload.kinds} disabled={disabled} onFile={(file) => { if (file) upload.onFile(file); }} />}
+            {shown.map((item) => <Thumb key={item.id} src={item.src} video={item.video} label={item.label} info={item.info} selected={item.id === selected} disabled={disabled || item.disabled} onSelect={() => onPick(item.id)} />)}
+          </ThumbGrid>
+        ) : <EmptyState title="Nothing to choose yet" text={emptyText} />}
+        {query.trim() && !shown.length && <Meta>Nothing matches. Try another word.</Meta>}
+        {loadMoreError && <div role="status"><Meta>{loadMoreError}</Meta></div>}
+        {onLoadMore && <Button variant="secondary" disabled={loadingMore} onClick={onLoadMore}>{loadingMore ? "Loading…" : loadMoreError ? "Try again" : "Load more"}</Button>}
+      </div>
+    </Dialog>
+  );
+}
+
 export function ThumbGrid({ children, label, compact }: { children: ReactNode; label: string; /** Small tiles in one scrolling row (a quick pick under a field). */ compact?: boolean }) {
   const [density] = useDensity();
   return <div className={cx("ds-thumbgrid", compact && "ds-thumbgrid--compact")} role="group" aria-label={label} style={{ ["--cols" as string]: densityColumns(density, gridItemCount(children)) }}><MediaSequence>{children}</MediaSequence></div>;
@@ -1607,8 +1654,11 @@ export function Tooltip({content,children,className,focusable=false}:{content:Re
   return <span ref={ref} className={cx("ds-tooltip-anchor",className)} tabIndex={focusable?0:undefined} aria-describedby={position?id:undefined} onMouseEnter={show} onMouseLeave={()=>setPosition(null)} onFocus={show} onBlur={()=>setPosition(null)} onClick={event=>{event.stopPropagation();show();}} onKeyDown={event=>{if(event.key==="Escape")setPosition(null);}}>{children}{position&&createPortal(<div id={id} role="tooltip" className="ds-tooltip" style={position}>{content}</div>,document.body)}</span>;
 }
 
-export function Thumb({ src, label, badge, info, selected, disabled, onSelect, onActivate, onPreview, onRemove, video, audio, dragData }: {
-  src?: string; label: string; badge?:ReactNode; info?: ReactNode; selected?: boolean; disabled?: boolean; onSelect?: () => void;
+export function Thumb({ src, label, badge, numbered, info, selected, disabled, onSelect, onActivate, onPreview, onRemove, video, audio, dragData }: {
+  src?: string; label: string; badge?:ReactNode;
+  /** A numbered reference (@1, @2): the number badge overhangs the top right corner and Remove moves to the top left. */
+  numbered?: boolean;
+  info?: ReactNode; selected?: boolean; disabled?: boolean; onSelect?: () => void;
   /** Primary tile click, for example inserting this reference into the prompt. */
   onActivate?:()=>void;
   onPreview?:()=>void;
@@ -1630,7 +1680,7 @@ export function Thumb({ src, label, badge, info, selected, disabled, onSelect, o
     </>
   );
   return (
-    <div ref={preview.ref} className="ds-thumb" data-selected={selected || undefined}>
+    <div ref={preview.ref} className={numbered ? "ds-thumb ds-thumb--numbered" : "ds-thumb"} data-selected={selected || undefined}>
       {onSelect||onActivate ? (
         <button type="button" className="ds-thumb__art" role={selecting?"checkbox":undefined} aria-checked={selecting?!!selected:undefined} aria-current={!selecting&&selected?"true":undefined} aria-label={!selecting&&selected?`${label} (selected)`:label} title={label} disabled={disabled} onClick={onActivate??onPreview??onSelect}
           draggable={!!dragData} onDragStart={dragData ? (e) => { e.dataTransfer.setData(dragData.type, dragData.value); if (src) e.dataTransfer.setData(ASSET_URL_DRAG, src); e.dataTransfer.effectAllowed = "copy"; } : undefined}>
@@ -2672,36 +2722,48 @@ export function CastCard({ name, portrait, meta, stats, selected = false, onActi
   </article>;
 }
 
-export function DropTarget({ label, hint, children, disabled = false, busy, onDrop }: {
+export function DropTarget({ label, hint, children, disabled = false, busy, onDrop, onFiles, wrap = false, boxed = false, className }: {
   label: string;
   hint?: string;
   children?: ReactNode;
   disabled?: boolean;
   /** While something is being uploaded into this box, the box says so itself, in these words. */
   busy?: string;
-  onDrop: (payload: string) => void;
+  /** A dropped card or asset id (text payload). */
+  onDrop?: (payload: string) => void;
+  /** Dropped files (images from the desktop). With `onFiles`, only file drags light the box up. */
+  onFiles?: (files: File[]) => void;
+  /** Wrap a box that has its own content (FotoField Modify): no outline of its own; while files hover
+   *  it gets a dashed accent border, an accent wash and the label centred over what it holds. */
+  wrap?: boolean;
+  /** With `wrap`: the box is one step lighter than its surface and the prompt inside has no box of its own. */
+  boxed?: boolean;
+  className?: string;
 }) {
   const [over, setOver] = useState(false);
+  const takes = (event: ReactDragEvent<HTMLDivElement>) => !disabled && (!onFiles || event.dataTransfer.types.includes("Files"));
   function drop(event: ReactDragEvent<HTMLDivElement>) {
     event.preventDefault();
     event.stopPropagation();
     setOver(false);
     if (disabled) return;
+    const files = Array.from(event.dataTransfer.files ?? []);
+    if (onFiles && files.length) { onFiles(files); return; }
     const payload = event.dataTransfer.getData("text/plain");
-    if (payload) onDrop(payload);
+    if (payload) onDrop?.(payload);
   }
   return <div
-    className="ds-droptarget"
+    className={["ds-droptarget", wrap ? "ds-droptarget--wrap" : "", wrap && boxed ? "ds-droptarget--boxed" : "", className ?? ""].filter(Boolean).join(" ")}
     data-over={over || undefined}
     data-disabled={disabled || undefined}
-    onDragEnter={event => { event.preventDefault(); if (!disabled) setOver(true); }}
-    onDragOver={event => { if (!disabled) event.preventDefault(); }}
-    onDragLeave={event => { if (event.currentTarget === event.target) setOver(false); }}
+    onDragEnter={event => { if (takes(event)) { event.preventDefault(); setOver(true); } }}
+    onDragOver={event => { if (takes(event)) { event.preventDefault(); if (!over) setOver(true); } }}
+    onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOver(false); }}
     onDrop={drop}
   >
     {children}
-    {label && <span className="ds-droptarget__label">{label}</span>}
-    {hint && <Meta>{hint}</Meta>}
+    {label && (!wrap || over) && <span className="ds-droptarget__label">{label}</span>}
+    {hint && !wrap && <Meta>{hint}</Meta>}
     {busy && <span className="ds-droptarget__busy" role="status"><ShimmerText>{busy}</ShimmerText></span>}
   </div>;
 }
@@ -4192,6 +4254,7 @@ export function Progress({
   value,
   detail,
   action,
+  floating,
 }: {
   label: string;
   value: number | null;
@@ -4199,16 +4262,19 @@ export function Progress({
   detail?: string;
   /** Something to do about it, such as a Cancel button. */
   action?: ReactNode;
+  /** A compact glass pill over media (the canvas upscale hint): no sparkle, title and percent in one row. */
+  floating?: boolean;
 }) {
   return (
-    <div className="ds-progress" role="status">
-      <SparkleLoader />
+    <div className={floating ? "ds-progress ds-progress--floating" : "ds-progress"} role="status">
+      {!floating && <SparkleLoader />}
       <span className="ds-progress__label">
         <ShimmerText>{label}</ShimmerText>
         {value !== null && <span className="ds-progress__pct">{value}%</span>}
       </span>
+      {value !== null && <span className="ds-progress__bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(Math.max(0, Math.min(100, value)))}><span style={{ width: `${Math.max(0, Math.min(100, value))}%` }} /></span>}
       {detail && <span className="ds-progress__detail">{detail}</span>}
-      {action}
+      {action && <span className="ds-progress__action">{action}</span>}
     </div>
   );
 }

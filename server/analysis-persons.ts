@@ -132,6 +132,34 @@ export const DEFAULT_MIN_MASK_AREA_RATIO = 0.002;
 
 type MaskStats = {width: number; height: number; minX: number; maxX: number; minY: number; maxY: number; count: number};
 
+/**
+ * One person split into several masks (Phase 3, LATER-2240): SAM can return a light shirt and dark
+ * trousers as two "people". Measured alone, the top's lowest pixel is the waist, so its root lands
+ * too far away and both come out about 0.6 m tall. Masks of the same frame whose horizontal extents
+ * overlap by at least half of the narrower one and that touch or overlap vertically (gap at most 4 %
+ * of the frame height) are merged into one outline. Two people side by side, or one behind the other
+ * with a clear gap, stay separate. Returns groups of mask indices, in the order of their first mask. Pure.
+ */
+export function splitMaskGroups(masks: ReadonlyArray<{frameIndex: number; minX: number; maxX: number; minY: number; maxY: number; height: number}>): number[][] {
+  const groups: Array<{frameIndex: number; minX: number; maxX: number; minY: number; maxY: number; members: number[]}> = [];
+  masks.forEach((mask, index) => {
+    const joins = (group: (typeof groups)[number]) => {
+      if (group.frameIndex !== mask.frameIndex) return false;
+      const overlap = Math.min(group.maxX, mask.maxX) - Math.max(group.minX, mask.minX);
+      const narrower = Math.max(1, Math.min(group.maxX - group.minX, mask.maxX - mask.minX));
+      const gap = Math.max(group.minY, mask.minY) - Math.min(group.maxY, mask.maxY);
+      return overlap >= 0.5 * narrower && gap <= 0.04 * mask.height;
+    };
+    const group = groups.find(joins);
+    if (group) {
+      group.minX = Math.min(group.minX, mask.minX); group.maxX = Math.max(group.maxX, mask.maxX);
+      group.minY = Math.min(group.minY, mask.minY); group.maxY = Math.max(group.maxY, mask.maxY);
+      group.members.push(index);
+    } else groups.push({frameIndex: mask.frameIndex, minX: mask.minX, maxX: mask.maxX, minY: mask.minY, maxY: mask.maxY, members: [index]});
+  });
+  return groups.map((group) => group.members);
+}
+
 /** Decode a mask PNG and measure its bounding box (MaskToImage writes white-on-black RGB). */
 export async function readMaskStats(bytes: Buffer): Promise<MaskStats> {
   const {data, info} = await sharp(bytes, {failOn: "warning"})
@@ -387,11 +415,26 @@ export async function analyzePersons(input: PersonAnalysisInput): Promise<Person
   }
   // Pass 1: decode, classify, and measure every mask whose feet are inside the frame.
   const pendingPrior: Array<{index: number; stats: MaskStats; headPx: number; feetCut: boolean; sideCut: boolean; frameIndex: number}> = [];
+  const allStats: MaskStats[] = [];
+  for (let index = 0; index < input.masks.length; index++) {
+    const stats = await readMaskStats(input.masks[index].bytes);
+    allStats.push(stats);
+    maskStats.push({filename: input.masks[index].filename, fileIndex: index, width: stats.width, height: stats.height, minX: stats.minX, maxX: stats.maxX, minY: stats.minY, maxY: stats.maxY, areaRatio: stats.count / (stats.width * stats.height)});
+  }
+  // A person SAM split into parts (shirt and trousers) is measured as one outline (splitMaskGroups).
+  const usable = allStats.map((stats, index) => ({index, stats})).filter((entry) => entry.stats.count > 0);
+  const merged = new Map<number, MaskStats>();
+  for (const group of splitMaskGroups(usable.map((entry) => ({frameIndex: frames[entry.index], height: entry.stats.height, minX: entry.stats.minX, maxX: entry.stats.maxX, minY: entry.stats.minY, maxY: entry.stats.maxY})))) {
+    const members = group.map((position) => usable[position]);
+    const [first, ...rest] = members;
+    merged.set(first.index, members.reduce<MaskStats>((union, entry) => ({...union, minX: Math.min(union.minX, entry.stats.minX), maxX: Math.max(union.maxX, entry.stats.maxX), minY: Math.min(union.minY, entry.stats.minY), maxY: Math.max(union.maxY, entry.stats.maxY), count: union.count + (entry === first ? 0 : entry.stats.count)}), first.stats));
+    for (const part of rest) skipped.push({filename: input.masks[part.index].filename, reason: `part of the same person as ${input.masks[first.index].filename}`});
+  }
   for (let index = 0; index < input.masks.length; index++) {
     const mask = input.masks[index];
-    const stats = await readMaskStats(mask.bytes);
+    if (allStats[index].count > 0 && !merged.has(index)) continue; // merged into another mask of its person
+    const stats = merged.get(index) ?? allStats[index];
     const areaRatio = stats.count / (stats.width * stats.height);
-    maskStats.push({filename: mask.filename, fileIndex: index, width: stats.width, height: stats.height, minX: stats.minX, maxX: stats.maxX, minY: stats.minY, maxY: stats.maxY, areaRatio});
     if (stats.count === 0) {
       skipped.push({filename: mask.filename, reason: "empty mask"});
       continue;

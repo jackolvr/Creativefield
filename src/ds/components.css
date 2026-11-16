@@ -334,7 +334,9 @@
 .ds-promptgroup .ds-prompt, .ds-promptgroup .ds-prompt:hover, .ds-promptgroup .ds-prompt:focus-within { background: transparent; border: 0; border-radius: 0; }
 .ds-promptgroup .ds-prompt { min-height: 0; }
 .ds-promptgroup .ds-prompt + .ds-prompt { border-top: 1px solid var(--line-hairline); }
-.ds-prompt__tools { display: flex; gap: var(--gap-inline); padding: 0 var(--pad-field) var(--pad-field); flex-wrap: wrap; }
+.ds-prompt__tools { display: flex; align-items: center; gap: var(--gap-inline); padding: 0 var(--pad-field) var(--pad-field); flex-wrap: wrap; }
+/* The header nudge of .ds-prompt .ds-iconbtn is for the head only; in the tool row an icon sits on the line of its button. */
+.ds-prompt__tools .ds-iconbtn { margin-top: 0; }
 
 /* Small tool chip used inside the prompt field. */
 .ds-toolchip {
@@ -431,6 +433,10 @@
 .ds-btn--brand:disabled { opacity: .5; }
 .ds-btn--primary:hover { background: var(--button-primary-bg-hover); border-color: var(--accent); box-shadow: var(--accent-glow-strong); }
 .ds-btn--secondary { background: var(--surface-subtle); color: var(--text-secondary); }
+.ds-btn--surface { background: var(--surface-control); color: var(--text-primary); border: 1px solid var(--line-soft); }
+.ds-btn--surface:hover { background: var(--surface-control-hover); color: var(--text-primary); }
+.ds-btn--accent { background: var(--accent); color: var(--text-on-accent); border: 1px solid var(--accent); font-weight: var(--weight-semibold); }
+.ds-btn--accent:hover { background: var(--accent); color: var(--text-on-accent); filter: brightness(1.08); }
 .ds-btn--secondary:hover { background: var(--surface-hover); color: var(--text-primary); }
 .ds-btn--ghost { color: var(--text-muted); }
 .ds-btn--ghost:hover { color: var(--text-secondary); background: var(--surface-subtle); }
@@ -876,6 +882,9 @@ button.ds-thumb__art:disabled { opacity: 0.45; cursor: not-allowed; }
 .ds-thumb__check { position: absolute; top: var(--space-2); right: var(--space-2); width: calc(20px * var(--ui-scale)); height: calc(20px * var(--ui-scale)); display: grid; place-items: center; border-radius: 50%; background: var(--surface-glass); border: 1px solid var(--line-strong); color: var(--text-on-accent); }
 .ds-thumb[data-selected] .ds-thumb__check { background: var(--accent); border-color: var(--accent); }
 .ds-thumb__badge { position:absolute; top:var(--space-1); left:var(--space-1); z-index:2; pointer-events:none; }
+.ds-thumb--numbered { overflow: visible; }
+.ds-thumb--numbered .ds-thumb__badge { top: calc(var(--space-2) * -1); right: calc(var(--space-2) * -1); left: auto; }
+.ds-thumb--numbered .ds-thumb__remove { right: auto; left: var(--space-1); }
 .ds-thumb__actions { position:absolute; bottom:var(--space-1); right:var(--space-1); display:flex; gap:var(--space-1); opacity:0; pointer-events:none; }
 .ds-thumb__remove { position:absolute; top:var(--space-1); right:var(--space-1); z-index:2; opacity:0; pointer-events:none; background:var(--surface-control); }
 .ds-thumb:is(:hover,:focus-within) :is(.ds-thumb__actions,.ds-thumb__remove) { opacity:1; pointer-events:auto; }
@@ -1093,6 +1102,31 @@ button.ds-thumb__art:disabled { opacity: 0.45; cursor: not-allowed; }
 .ds-progress__label { font-size: var(--text-sm); font-weight: var(--weight-regular); display: flex; gap: var(--space-2); align-items: baseline; }
 .ds-progress__detail { font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--text-secondary); margin-top: calc(var(--space-2) * -1); }
 .ds-progress__pct { color: var(--text-secondary); font-variant-numeric: tabular-nums; font-weight: var(--weight-regular); }
+.ds-progress__bar { width: 100%; height: 3px; border-radius: var(--radius-full); background: var(--surface-hover); overflow: hidden; }
+/* The fill carries the same light band as the shimmering label, so the bar reads as working, not stuck. */
+.ds-progress__bar > span {
+  display: block; height: 100%; border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent) 0%, var(--accent) 38%, #d7efff 50%, var(--accent) 62%, var(--accent) 100%);
+  background-size: 250% 100%;
+  animation: ds-shimmer 1.6s linear infinite;
+  transition: width var(--dur-med) var(--ease);
+}
+@media (prefers-reduced-motion: reduce) { .ds-progress__bar > span { animation: none; background: var(--accent); } }
+/* Floating: a compact glass pill over media (the canvas upscale hint). Title and percent on one row,
+   the hairline bar under them, the step count as a quiet caption. */
+.ds-progress--floating {
+  display: grid; grid-template-columns: 1fr auto; gap: var(--space-1) var(--space-3); align-items: baseline;
+  width: 100%; padding: var(--space-2) var(--space-3) calc(var(--space-2) + 1px);
+  text-align: left; border-radius: var(--radius-lg);
+  background: var(--surface-overlay); backdrop-filter: blur(16px);
+  box-shadow: var(--shadow-pop);
+}
+.ds-progress--floating .ds-progress__label { font-size: var(--text-xs); line-height: var(--lh-xs); min-width: 0; white-space: nowrap; overflow: hidden; }
+.ds-progress--floating .ds-progress__pct { grid-column: 2; grid-row: 1; font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--text-primary); }
+.ds-progress--floating .ds-progress__bar { grid-column: 1 / -1; height: 2px; margin-top: var(--space-1); }
+/* Its action (Cancel) sits at the right end of the caption line, inside the pill. */
+.ds-progress--floating .ds-progress__action { grid-column: 2; grid-row: 3; justify-self: end; align-self: center; margin: calc(var(--space-1) * -1) calc(var(--space-1) * -1) calc(var(--space-1) * -1) 0; }
+.ds-progress--floating .ds-progress__detail { grid-column: 1; margin-top: 0; font-size: var(--text-2xs); line-height: var(--lh-2xs); color: var(--text-meta); }
 
 /* â”€â”€ Notice â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 /* Errors are quiet: normal text color, regular weight, a colored icon and
@@ -1430,7 +1464,7 @@ button.ds-thumb__art:disabled { opacity: 0.45; cursor: not-allowed; }
 .ds-inline { position: relative; display: flex; align-items: center; gap: var(--gap-inline); min-width: 0; }
 .ds-inline--select { flex: 0 1 auto; min-width: calc(84px * var(--ui-scale)); }
 .ds-inline--slider { flex: none; }
-.ds-inline__select { width: 100%; appearance: none; -webkit-appearance: none; height: calc(20px * var(--ui-scale)); display: flex; align-items: center; justify-content: center; padding: 0 calc(14px * var(--ui-scale)); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface-control); color: var(--text-primary); font: inherit; font-size: var(--text-3xs); line-height: 1; text-align: center; color-scheme: dark; cursor: pointer; }
+.ds-inline__select { width: 100%; appearance: none; -webkit-appearance: none; height: calc(20px * var(--ui-scale)); display: block; padding: 0 calc(20px * var(--ui-scale)) 0 calc(10px * var(--ui-scale)); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface-control); color: var(--text-primary); font: inherit; font-size: var(--text-3xs); line-height: calc(18px * var(--ui-scale)); text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; /* the chevron owns the right 20 px, the words never run under it */ color-scheme: dark; cursor: pointer; }
 .ds-inline__chev { position: absolute; top: 50%; right: calc(6px * var(--ui-scale)); transform: translateY(-50%); pointer-events: none; color: var(--text-secondary); }
 .ds-inline__label { flex: none; font-size: var(--text-3xs); color: var(--text-secondary); }
 .ds-inline__field { display: flex; align-items: center; height: calc(20px * var(--ui-scale)); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface-control); }
@@ -1444,7 +1478,7 @@ button.ds-thumb__art:disabled { opacity: 0.45; cursor: not-allowed; }
 .ds-actionbar { display: flex; align-items: center; justify-content: space-around; padding-top: var(--space-1); box-shadow: 0 -1px 0 var(--line-hairline); }
 
 .ds-stagebox { flex: 1; min-height: 0; min-width: 0; display: flex; gap: var(--gap-block); }
-.ds-toolrail { flex: none; display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-2); border-radius: var(--radius-xl); background: var(--surface-control); align-self: flex-start; }
+.ds-toolrail { flex: none; display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-2); border-radius: var(--radius-xl); background: var(--surface-tool); align-self: flex-start; }
 .ds-toolrail__tool { width: calc(36px * var(--ui-scale)); height: calc(36px * var(--ui-scale)); display: grid; place-items: center; border: 0; border-radius: var(--radius-lg); background: transparent; color: var(--text-secondary); cursor: pointer; }
 .ds-toolrail__tool:hover { background: var(--surface-control-hover); color: var(--text-primary); }
 .ds-toolrail__tool[data-selected] { background: var(--accent-soft); color: var(--accent); }
@@ -1484,7 +1518,7 @@ button.ds-thumb__art:disabled { opacity: 0.45; cursor: not-allowed; }
 .ds-resulttile__status { padding: var(--space-3); text-align: center; font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--text-secondary); }
 
 /* â”€â”€ Dock panels (editor side column) and side popover â”€â”€â”€â”€â”€â”€â”€â”€ */
-.ds-dock { width: var(--panel-w); flex: none; display: flex; flex-direction: column; min-height: 0; border-radius: var(--radius-2xl); background: var(--surface-panel); box-shadow: inset 0 0 0 1px var(--line-soft); }
+.ds-dock { width: var(--panel-w); flex: none; display: flex; flex-direction: column; min-height: 0; border-radius: var(--radius-2xl); background: var(--surface-tool); --surface-control: var(--surface-tool-control); --surface-control-hover: var(--surface-tool-control-hover); box-shadow: inset 0 0 0 1px var(--line-soft); }
 .ds-dockstack { position: relative; display: flex; flex-direction: column; width: var(--panel-w); max-width: 100%; padding: var(--space-1); gap: var(--gap-block); isolation: isolate; overflow-anchor: none; scrollbar-gutter: stable; }
 .ds-dockstack > .ds-dock { width: 100%; min-width: 0; position: relative; transition: transform var(--dur-med) var(--ease); }
 .ds-dockstack[data-sorting] { cursor: grabbing; user-select: none; }
@@ -1868,6 +1902,20 @@ button.ds-castcard__main { cursor: pointer; }
 .ds-droptarget { position: relative; display: grid; place-items: center; align-content: center; gap: var(--gap-inline); min-height: calc(118px * var(--ui-scale)); padding: var(--gap-block); border: 1px dashed var(--line-strong); border-radius: var(--radius-md); background: var(--surface-subtle); text-align: center; }
 .ds-droptarget[data-over] { border-color: var(--accent); background: var(--accent-soft); }
 .ds-droptarget[data-disabled] { opacity: .55; }
+/* Wrap: the box keeps its own look; while files hover, the whole box becomes the target (FotoField Modify). */
+.ds-droptarget--wrap { display: block; place-items: normal; align-content: normal; min-height: 0; padding: 0; border: 0; background: none; text-align: left; border-radius: var(--radius-xl); }
+.ds-droptarget--wrap[data-over] { background: none; }
+.ds-droptarget--boxed[data-over] { background: var(--surface-control); }
+.ds-droptarget--wrap[data-over] > :not(.ds-droptarget__label) { opacity: .3; transition: opacity var(--dur-fast) var(--ease); }
+.ds-droptarget--wrap[data-over]::after { content: ""; position: absolute; inset: 0; z-index: 3; pointer-events: none; border: 1px dashed var(--accent); border-radius: inherit; background: var(--accent-soft); }
+/* Boxed: one composer box one step lighter than its dock (FotoField Modify): references, words and actions
+   sit inside it, the prompt has no box of its own; focus lights the box's outline. */
+.ds-droptarget--boxed { background: var(--surface-control); box-shadow: inset 0 0 0 1px var(--line-soft); transition: box-shadow var(--dur-fast) var(--ease); }
+.ds-droptarget--boxed:focus-within { box-shadow: inset 0 0 0 1px var(--accent-ring); }
+.ds-droptarget--boxed .ds-prompt, .ds-droptarget--boxed .ds-prompt:hover, .ds-droptarget--boxed .ds-prompt:focus-within { background: transparent; border-color: transparent; }
+/* Text and its highlight layer share one padding, so the caret stays on the drawn text. */
+.ds-droptarget--boxed .ds-prompt :is(textarea, .ds-prompt__highlight) { padding: 0; }
+.ds-droptarget--wrap > .ds-droptarget__label { position: absolute; inset: 0 0 auto; z-index: 4; pointer-events: none; padding: var(--space-5) var(--space-3) 0; text-align: center; font-weight: var(--weight-medium); color: var(--text-primary); }
 .ds-droptarget__label { font-size: var(--text-sm); color: var(--text-secondary); }
 /* A drop target that holds a media slot or card only takes the drop; the media draws the box it sits in. */
 .ds-droptarget:has(> :is(.ds-upload, .ds-mediacard)) { display: block; place-items: normal; min-height: 0; padding: 0; border: 0; background: none; }
@@ -2040,6 +2088,12 @@ button.ds-castcard__main { cursor: pointer; }
 .ds-job-queue__item { display: flex; align-items: center; gap: var(--gap-stack); width: 100%; min-width: 0; padding: var(--pad-row); border: 0; border-radius: var(--radius-md); background: transparent; color: var(--text-primary); text-align: left; cursor: pointer; }
 .ds-job-queue__item:hover, .ds-job-queue__item:focus-visible { background: var(--surface-hover); }
 .ds-job-queue__item > svg { margin-left: auto; flex: none; color: var(--text-muted); }
+/* A row is the job (opens its run) plus, for an active job, a quiet Cancel on the right that brightens on hover. */
+.ds-job-queue__row { position: relative; display: flex; align-items: center; gap: var(--space-1); min-width: 0; }
+.ds-job-queue__row > .ds-job-queue__item { flex: 1; }
+.ds-job-queue__cancel { flex: none; display: grid; place-items: center; width: calc(28px * var(--ui-scale)); height: calc(28px * var(--ui-scale)); padding: 0; border: 0; border-radius: var(--radius-md); background: transparent; color: var(--text-muted); cursor: pointer; transition: color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease); }
+.ds-job-queue__cancel:hover, .ds-job-queue__cancel:focus-visible { color: var(--text-primary); background: var(--surface-hover); }
+.ds-job-queue__cancel:disabled { opacity: .4; cursor: default; }
 .ds-job-queue__item-ring { flex: none; display: grid; place-items: center; width: var(--control-h); height: var(--control-h); border-radius: var(--radius-full); background: var(--surface-subtle); color: var(--accent); }
 .ds-job-queue__item-ring > svg:not(.ds-job-queue__progress) { animation: ds-job-spin 1.5s linear infinite; }
 .ds-job-queue__item-copy { display: grid; gap: var(--space-1); min-width: 0; flex: 1; }
@@ -2317,3 +2371,8 @@ button.ds-castcard__main { cursor: pointer; }
 .ds-shottimeline__section:hover .ds-shottimeline__open,
 .ds-shottimeline__section:focus-within .ds-shottimeline__open { opacity:1; pointer-events:auto; }
 .ds-shottimeline__end { flex:none; display:flex; align-items:center; padding-inline:var(--space-2); }
+
+
+.ds-mediapicker { display: flex; flex-direction: column; gap: var(--gap-block); }
+/* The upload tile is a square like the pictures beside it. */
+.ds-mediapicker .ds-upload--tile { aspect-ratio: 1; min-height: 0; }

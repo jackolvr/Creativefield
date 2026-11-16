@@ -423,7 +423,7 @@ export async function buildServer(config: ServerConfig, pool: Pool, dependencies
   await replaceClipCheckRoutes(app,pool,store);
   await promptExpanderRoutes(app,pool);
   await onboardingRoutes(app,pool,config);
-  await h3EditorRoutes(app,pool);
+  await h3EditorRoutes(app,pool,store);
   await h3EditorProxyRoutes(app,pool,config.publicOrigin);
   app.get(`${base}/node-editor`,async request=>{
     const {workspaceId}=workspaceParam.parse(request.params);await member(pool,request,workspaceId,"creator");

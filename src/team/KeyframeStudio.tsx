@@ -1,6 +1,6 @@
 import {Info} from 'lucide-react';
 import {useEffect,useMemo,useRef,useState} from 'react';
-import {Button,Dialog,GenerateButton,IconButton,InlineSelect,LabeledRow,Meta,Notice,Panel,PromptField,Thumb,ThumbGrid,UploadSlot} from '../ds';
+import {Dialog,GenerateButton,IconButton,InlineSelect,LabeledRow,MediaPickerDialog,Meta,Notice,Panel,PromptField,UploadSlot} from '../ds';
 import type {CapabilityManifestV2} from '../capabilities/types';
 import {hasQualifiedDurationMapping} from '../capabilities/timing';
 import {isFlashVideoCreate,routeTask} from '../capabilities/tasks';
@@ -138,12 +138,10 @@ export function KeyframeStudio({workspace,project,user,catalogue,workers,call,au
   </div>
  </Panel><ProductionContent><ToolHero kind="keyframes"/>{board&&<StoryboardResults key={`${board.id}:${version}`} boardId={board.id} boardRevision={board.revision} workspace={workspace} user={user} call={call} authorized={authorized} canEdit={canEdit} version={version} onActiveChange={setRendering}/>}<StoryboardLibrary workspace={workspace.id} assets={assets} disabled={locked} onSelect={id=>{const empty=frames.findIndex(f=>!f.assetId);void choose(empty<0?Math.max(0,activeSegment):empty,id);}}/><ExampleTiles kind="video"/></ProductionContent>
  <Dialog open={infoOpen} title="Key frames" onClose={()=>setInfoOpen(false)}><Meta>Add two to four images, position the keyframes and describe each transition. The timeline snaps near whole seconds. If the model cannot end at the requested time, the closest supported time is shown.</Meta><LabeledRow label="Model"><InlineSelect label="Keyframe model" value={model?.id??''} disabled={locked||!models.length} onChange={changeModel} options={models.map(m=>({value:m.id,label:m.title}))}/></LabeledRow></Dialog>
- <Dialog wide open={picker!==null} title="Choose a keyframe" onClose={()=>setPicker(null)}><div className="cf-form">
-  <ThumbGrid label="Project images">
-   <UploadSlot tile label="Upload" hint="Choose, drop or paste a picture" accept={imageTypes} disabled={locked} onFile={file=>{if(picker!==null&&file)void upload(picker,file);}}/>
-   {images.map(image=><Thumb key={image.id} src={assetUrl(workspace.id,image.id)} label={image.name} disabled={locked} onActivate={()=>{if(!locked&&picker!==null)void choose(picker,image.id);}}/>)}
-  </ThumbGrid>
-  {libraryError&&<Notice inline title="Couldn't load more images" details={libraryError}>Try again.</Notice>}{assetCursor&&<Button variant="secondary" disabled={locked} onClick={()=>void moreAssets()}>{busy==='library'?'Loading…':'Load more'}</Button>}
- </div></Dialog>
+ <MediaPickerDialog open={picker!==null} title="Choose a keyframe" onClose={()=>setPicker(null)} disabled={locked}
+  items={images.map(image=>({id:image.id,src:assetUrl(workspace.id,image.id),label:image.name}))}
+  onPick={id=>{if(picker!==null)void choose(picker,id);}}
+  upload={{accept:imageTypes,kinds:['image'],hint:'Choose, drop or paste a picture',onFile:file=>{if(picker!==null)void upload(picker,file);}}}
+  onLoadMore={assetCursor?()=>void moreAssets():undefined} loadingMore={busy==='library'} loadMoreError={libraryError||undefined}/>
  </div>;
 }

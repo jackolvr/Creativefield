@@ -26,6 +26,9 @@
   --surface-panel: #131517;     /* left control panel, side columns */
   --surface-control: #1c1e20;   /* param buttons, rows, upload slot, media cards */
   --surface-control-hover: #232528;
+  --surface-tool: #1c1e20;            /* editor tool rail and docks: one grey, lifted off the page */
+  --surface-tool-control: #26282b;    /* controls and fields that sit on a tool surface */
+  --surface-tool-control-hover: #2e3033;
   --surface-input: #0b0c0d;     /* where you type: darker than the panel it sits in, with a hairline, so a field reads as a hole to fill */
   --line-input: rgba(255, 255, 255, 0.10);
   --surface-subtle: rgba(255, 255, 255, 0.05);  /* secondary rows, pills */

@@ -42,7 +42,7 @@ import {
 } from "three";
 import type {EvaluatedCamera, EvaluatedEntity, StageFrame, StageScore} from "../score/schema";
 import type {SceneBlock} from "../analysis-contract";
-import {sceneBlockMeshes} from "./scene-blocks";
+import {sceneBlockMeshes, type SetLook} from "./scene-blocks";
 import {buildMannequin, STRIDE_PER_CYCLE_M, type Mannequin, type WalkState} from "./mannequin";
 import {evaluateFrame} from "../score/evaluate";
 
@@ -373,8 +373,8 @@ export function buildStageScene(score: StageScore): BuiltScene {
  * and the previous meshes (geometry + material) are disposed. A shot without blocks
  * (older cache) clears the group.
  */
-export function applySceneSet(built: BuiltScene, blocks: readonly SceneBlock[] | undefined) {
-  const meshes = sceneBlockMeshes(blocks);
+export function applySceneSet(built: BuiltScene, blocks: readonly SceneBlock[] | undefined, look: SetLook = "studio") {
+  const meshes = sceneBlockMeshes(blocks, look);
   const key = meshes.map((mesh) => `${mesh.position.join(",")}|${mesh.size.join(",")}|${mesh.shade}`).join(";");
   if (key === built.setKey) return;
   built.setKey = key;

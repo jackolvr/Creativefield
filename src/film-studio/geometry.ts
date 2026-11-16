@@ -576,6 +576,25 @@ export function personHeightFromMaskTop(
 }
 
 /** The ~1.7 m person-height sanity anchor: report the raw value, clamp only outside 1.2..2.1 m. */
+/**
+ * The people as the ruler of a shot (Phase 3, LATER-2240). MoGe's metric depth can be off by a
+ * large factor (a grey CG render measured a 1.75 m figure as 0.62 m). When the measured people
+ * agree that the whole scene is too small or too large - their median raw height outside the
+ * plausible band - every length of the shot (floor offset, camera height, positions, set) is
+ * scaled by prior / median, so the person comes out 1.75 m and the place keeps its proportions.
+ * Inside the band, or without a measured person, the scene stays as measured (1). Pure.
+ */
+export function peopleScale(rawHeightsM: readonly (number | null | undefined)[], bounds: {minM?: number; maxM?: number} = {}): number {
+  const heights = rawHeightsM.filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0.05).sort((a, b) => a - b);
+  if (!heights.length) return 1;
+  const middle = heights.length / 2;
+  const median = heights.length % 2 ? heights[Math.floor(middle)] : (heights[middle - 1] + heights[middle]) / 2;
+  if (plausiblePersonHeight(median, bounds).plausible) return 1;
+  // A factor beyond 6 is not a scale error any more but a wrong detection; keep the measurement.
+  const factor = PERSON_HEIGHT_PRIOR_M / median;
+  return factor > 1 / 6 && factor < 6 ? factor : 1;
+}
+
 export function plausiblePersonHeight(rawM: number, bounds: {minM?: number; maxM?: number} = {}): PersonHeight {
   const minM = bounds.minM ?? 1.2;
   const maxM = bounds.maxM ?? 2.1;

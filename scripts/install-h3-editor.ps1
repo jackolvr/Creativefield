@@ -18,8 +18,18 @@ $editorJs = Join-Path $target 'editor\editor.js'
 $editorCss = Join-Path $target 'editor\editor.css'
 $theme = Join-Path $repoRoot 'scripts\h3-editor-theme.css'
 
+# The #ds theme is the last block of editor.css. Each run replaces that block with the current
+# scripts/h3-editor-theme.css, so a theme change reaches an installed editor without a reinstall.
+function Set-CreativeFieldTheme {
+  $css = Get-Content $editorCss -Raw
+  $at = $css.IndexOf('CreativeField (#ds) theme for the embedded H3 Editor')
+  if ($at -ge 0) { $css = $css.Substring(0, $css.LastIndexOf('/*', $at)).TrimEnd() }
+  Set-Content -Path $editorCss -Value "$css`n`n$(Get-Content $theme -Raw)" -NoNewline -Encoding utf8
+}
+
 if (Test-Path $editorJs) {
-  Write-Host "H3 Editor is already installed at $target; leaving it unchanged."
+  Set-CreativeFieldTheme
+  Write-Host "H3 Editor is already installed at $target; theme refreshed, nothing else changed."
   exit 0
 }
 
@@ -93,7 +103,7 @@ $js = $js.Replace('const NOTE_INK = "#ffb547";', 'const NOTE_INK = "#2fa8ff";')
 Set-Content -Path $editorJs -Value $js -NoNewline -Encoding utf8
 
 # 4. #ds theme: colours, radius, font.
-Add-Content -Path $editorCss -Value "`n$(Get-Content $theme -Raw)" -Encoding utf8
+Set-CreativeFieldTheme
 
 Write-Host "Installed H3 Editor at $target"
 Write-Host "Project mapping: ?project=cf-<projectId> is created once and reopened."

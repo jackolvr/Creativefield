@@ -1,8 +1,8 @@
 import {useEffect,useId,useLayoutEffect,useRef,useState} from "react";
-import {ArrowUpRight,Check,RefreshCw} from "lucide-react";
+import {ArrowUpRight,Check,RefreshCw,X} from "lucide-react";
 import {Button,Notice,SparkleLoader} from "./components";
 
-export type JobQueueItem={id:string;title:string;status:string;progress?:number;/** What the job makes, for example the start of its prompt. */detail?:string;/** Preparation rows have no run to open yet. */selectable?:boolean};
+export type JobQueueItem={id:string;title:string;status:string;progress?:number;/** What the job makes, for example the start of its prompt. */detail?:string;/** Preparation rows have no run to open yet. */selectable?:boolean;/** The job can be stopped from the menu. */cancellable?:boolean};
 
 function ProgressRing({progress}:{progress?:number}){
   if(progress==null||!Number.isFinite(progress))return <SparkleLoader size="sm"/>;
@@ -14,9 +14,12 @@ function ProgressRing({progress}:{progress?:number}){
 }
 
 /** Shared header job surface. Data fetching belongs to the application. */
-export function JobQueueMenu({items,total=items.length,loading=false,error=false,onRefresh,onSelect,onAll}:{items:JobQueueItem[];total?:number;loading?:boolean;error?:boolean;onRefresh:()=>void;onSelect:(id:string)=>void;onAll:()=>void}){
+export function JobQueueMenu({items,total=items.length,loading=false,error=false,onRefresh,onSelect,onAll,onCancel}:{items:JobQueueItem[];total?:number;loading?:boolean;error?:boolean;onRefresh:()=>void;onSelect:(id:string)=>void;onAll:()=>void;/** Stop a job; the row says "Cancelling…" until the next refresh drops it. */onCancel?:(id:string)=>Promise<void>}){
   const [open,setOpen]=useState(false),root=useRef<HTMLDivElement>(null),trigger=useRef<HTMLButtonElement>(null),panel=useRef<HTMLElement>(null);
   const id=useId();
+  const [cancelling,setCancelling]=useState<Record<string,boolean>>({}),[cancelError,setCancelError]=useState("");
+  const cancel=async(itemId:string)=>{if(!onCancel||cancelling[itemId])return;setCancelError("");setCancelling(old=>({...old,[itemId]:true}));
+    try{await onCancel(itemId);}catch(cause){setCancelling(old=>{const next={...old};delete next[itemId];return next;});setCancelError((cause as Error).message||"The job could not be cancelled.");}};
   const [offset,setOffset]=useState(0);
   const close=(restore=false)=>{setOpen(false);if(restore)trigger.current?.focus();};
   useLayoutEffect(()=>{
@@ -42,9 +45,12 @@ export function JobQueueMenu({items,total=items.length,loading=false,error=false
     {open&&<section ref={panel} tabIndex={-1} className="ds-job-queue__panel" style={{transform:`translateX(${offset}px)`}} id={id} role="dialog" aria-label="Jobs" aria-busy={loading}>
       <header className="ds-job-queue__head"><div><strong>Jobs</strong><span>{loading?"Checking…":total?`${total} active`:"All caught up"}</span></div><button type="button" aria-label="Refresh jobs" title="Refresh" disabled={loading} onClick={onRefresh}>{loading?<SparkleLoader size="sm"/>:<RefreshCw size={15}/>}</button></header>
       {error?<Notice tone="danger" inline title="Could not update jobs" actions={<Button variant="secondary" onClick={onRefresh}>Try again</Button>}>Try again to check their status.</Notice>:items.length?<div className="ds-job-queue__list">{items.map(item=>{
-        const content=<><span className="ds-job-queue__item-ring" aria-hidden="true"><ProgressRing progress={item.progress}/></span><span className="ds-job-queue__item-copy"><strong title={item.title}>{item.title}</strong><small>{item.status}{item.progress!=null&&Number.isFinite(item.progress)?` · ${Math.round(Math.max(0,Math.min(1,item.progress))*100)}%`:""}</small>{item.detail&&<small className="ds-job-queue__detail" title={item.detail}>{item.detail}</small>}</span>{item.selectable===false?null:<ArrowUpRight size={15} aria-hidden="true"/>}</>;
-        return item.selectable===false?<div role="status" className="ds-job-queue__item" key={item.id}>{content}</div>:<button type="button" className="ds-job-queue__item" key={item.id} onClick={()=>{close();onSelect(item.id);}}>{content}</button>;
+        const stopping=!!cancelling[item.id];
+        const content=<><span className="ds-job-queue__item-ring" aria-hidden="true"><ProgressRing progress={item.progress}/></span><span className="ds-job-queue__item-copy"><strong title={item.title}>{item.title}</strong><small>{stopping?"Cancelling…":item.status}{item.progress!=null&&Number.isFinite(item.progress)?` · ${Math.round(Math.max(0,Math.min(1,item.progress))*100)}%`:""}</small>{item.detail&&<small className="ds-job-queue__detail" title={item.detail}>{item.detail}</small>}</span>{item.selectable===false?null:<ArrowUpRight size={15} aria-hidden="true"/>}</>;
+        const row=item.selectable===false?<div role="status" className="ds-job-queue__item">{content}</div>:<button type="button" className="ds-job-queue__item" onClick={()=>{close();onSelect(item.id);}}>{content}</button>;
+        return <div className="ds-job-queue__row" key={item.id}>{row}{onCancel&&item.cancellable&&<button type="button" className="ds-job-queue__cancel" aria-label={`Cancel ${item.title}`} title="Cancel job" disabled={stopping} onClick={()=>void cancel(item.id)}><X size={14}/></button>}</div>;
       })}</div>:<div className="ds-job-queue__empty">{loading?"Checking your jobs…":"No active jobs"}</div>}
+      {cancelError&&<Notice inline title="Could not cancel the job" actions={<Button variant="secondary" onClick={onRefresh}>Refresh</Button>}>{cancelError}</Notice>}
       <button type="button" className="ds-job-queue__all" onClick={()=>{close();onAll();}}>Open all runs <ArrowUpRight size={14}/></button>
     </section>}
   </div>;

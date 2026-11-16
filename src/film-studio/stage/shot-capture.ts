@@ -19,7 +19,8 @@ import {clipFrameTimes} from "./clip-timing";
  */
 export type ClipLook = "stage" | "handoff";
 
-const NEUTRAL_SKY = 0xc3c8cd;
+/** The previs clip is a light grey-box world, like a clay render: pale sky, pale floor, light set. */
+const NEUTRAL_SKY = 0xc9cdd1;
 
 function tiledFloor(): Mesh {
   const size = 64;
@@ -28,9 +29,10 @@ function tiledFloor(): Mesh {
   canvas.height = size;
   const context = canvas.getContext("2d");
   if (context) {
-    context.fillStyle = "#8d9298";
+    // A faint checker: the parallax of camera travel stays readable without a game-board floor.
+    context.fillStyle = "#d3d6d9";
     context.fillRect(0, 0, size, size);
-    context.fillStyle = "#7c8187";
+    context.fillStyle = "#cacdd1";
     context.fillRect(0, 0, size / 2, size / 2);
     context.fillRect(size / 2, size / 2, size / 2, size / 2);
   }
@@ -53,7 +55,7 @@ function prepareHandoffScene(built: BuiltScene, score: StageScore, set: readonly
   if (grid) grid.visible = false;
   built.scene.add(tiledFloor());
   built.scene.fog = new Fog(NEUTRAL_SKY, 40, 160);
-  applySceneSet(built, set);
+  applySceneSet(built, set, "light");
   for (const entity of score.entities) {
     const visual = built.entities.get(entity.id);
     if (!visual) continue;
