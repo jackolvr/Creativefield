@@ -78,11 +78,12 @@ const name = z.string().trim().min(1).max(120);
 const role = z.enum(["admin", "creator", "viewer"]);
 const base = "/api/v1/workspaces/:workspaceId";
 
-export async function buildServer(config: ServerConfig, pool: Pool, dependencies:ProviderDependencies&{catalogue?:CapabilityBundle[];systemVoice?:SystemVoiceEngine;chatgptNative?:ChatgptNative;localComfyStarter?:LocalComfyStarter}={}) {
+export async function buildServer(config: ServerConfig, pool: Pool, dependencies:ProviderDependencies&{catalogue?:CapabilityBundle[];/** Tests of server mechanics that predate the HyperFlow-only decision keep the retired video workflows; the product never sets this. */keepRetiredVideoModels?:boolean;systemVoice?:SystemVoiceEngine;chatgptNative?:ChatgptNative;localComfyStarter?:LocalComfyStarter}={}) {
   guardPool(pool);
   const app = Fastify({ logger: false, bodyLimit: 1024 * 1024 });
   const store = new DiskStore(config.storageRoot, config.maxUploadBytes);
-  const catalogue = retireNonHyperflowVideoModels(dependencies.catalogue??await loadServerCatalogue());
+  const retire=(bundles:CapabilityBundle[])=>dependencies.keepRetiredVideoModels?bundles:retireNonHyperflowVideoModels(bundles);
+  const catalogue = retire(dependencies.catalogue??await loadServerCatalogue());
   const registry=dependencies.registry??productionDirectRegistry;
   await app.register(cookie);
   await app.register(multipart, { limits: { fileSize: config.maxUploadBytes, files: 1, fields: 4 } });
@@ -105,7 +106,10 @@ export async function buildServer(config: ServerConfig, pool: Pool, dependencies
        localhost or a LAN address), so deleting works whatever address the person reached; another site's
        origin never matches. */
     const host = request.headers.host;
-    const sameSite = !!host && (request.headers.origin === `https://${host}` || request.headers.origin === `http://${host}`);
+    // Plain http from the same host only where the app is reached that way: this computer, the LAN, or an http app.
+    // A hosted https site never takes an http write for its own name (a downgraded or spoofed page).
+    const plainHttpOk = !!host && (config.publicOrigin === `http://${host}` || /^(localhost|127\.\d+\.\d+\.\d+|\[::1\]|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|[^.:]+\.local)(:\d+)?$/i.test(host));
+    const sameSite = !!host && (request.headers.origin === `https://${host}` || (plainHttpOk && request.headers.origin === `http://${host}`));
     if (!["GET", "HEAD", "OPTIONS"].includes(request.method) && request.headers.origin !== config.publicOrigin && !sameSite) throw new HttpError(403, "Request origin is not allowed");
   });
   /* A browser that signed in to Comfy Cloud sends its key with every request. After a restart the
@@ -197,7 +201,7 @@ export async function buildServer(config: ServerConfig, pool: Pool, dependencies
 
   app.get(`${base}/catalogue`, async request => {
     const { workspaceId } = workspaceParam.parse(request.params); await member(pool, request, workspaceId);
-    return retireNonHyperflowVideoModels(await loadWorkspaceCatalogue(pool,catalogue,workspaceId)).filter(b=>!b.manifest.posePreviewContract).map(b => b.manifest);
+    return retire(await loadWorkspaceCatalogue(pool,catalogue,workspaceId)).filter(b=>!b.manifest.posePreviewContract).map(b => b.manifest);
   });
   app.get(`${base}/workers`, async request => {
     const { workspaceId } = workspaceParam.parse(request.params); await member(pool, request, workspaceId);

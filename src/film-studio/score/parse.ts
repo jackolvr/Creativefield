@@ -468,10 +468,12 @@ function cameraCue(source: Dict, id: string, startSec: number, endSec: number, c
   }
 
   const waypoints: CameraPose[] = [];
+  let waypointTargets = false;
   if (move === "spline") {
     let previousPose = copyPose(start);
     for (const entry of list(pick(source, "waypoints"))) {
       const waypoint = dict(entry);
+      if (pick(waypoint, "target") !== undefined) waypointTargets = true;
       const pose = copyPose(previousPose);
       pose.target = anchor(pick(waypoint, "target")) ?? previousPose.target;
       pose.targetOffset = vec3(pick(waypoint, "target_offset", "targetOffset"), previousPose.targetOffset);
@@ -499,6 +501,7 @@ function cameraCue(source: Dict, id: string, startSec: number, endSec: number, c
     yawDelta,
     breathe,
     waypoints,
+    ...(waypointTargets ? {waypointTargets} : {}),
     focus: focusAnchor(pick(source, "focus", "focus_target", "focusTarget")) ?? focusAnchor(pick(source, "focus_distance", "focusDistance", "focus_dist")),
     focusStart: focusAnchor(pick(source, "focus_start", "focusStart")),
     focusEnd: focusAnchor(pick(source, "focus_end", "focusEnd")),

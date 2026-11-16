@@ -134,7 +134,12 @@ export function closestAspectOption(ratio: number, options: readonly string[]): 
 }
 
 /** What a studio hands to a guide-clip video workflow besides the clip: the shot direction and the clip's aspect. */
-export type VideoHandoff = {prompt: string; aspectRatio?: number};
+export type VideoHandoff = {
+  prompt: string;
+  aspectRatio?: number;
+  /** A picture of the place (a source frame); it goes to the first optional picture input of the tool. */
+  placeAssetId?: string;
+};
 
 /**
  * The prompt format MiniMax's base H3 video models (T2VA/I2VA/FL2VA) were trained on, written by the

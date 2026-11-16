@@ -107,3 +107,54 @@ export function sam3Graph(params: Sam3GraphParams): Sam3Prompt {
   appended[SAM3_OUTPUT_NODE].inputs.filename_prefix = params.savePrefix;
   return {graph: {...core, ...appended}, outputNode: SAM3_OUTPUT_NODE, nodeIds: GRAPH_NODE_IDS.sam3};
 }
+
+/** DA3-Base: the smallest Depth Anything 3 that estimates camera poses across views (multiview needs Small/Base). */
+export const DA3_MODEL = "depth_anything_3_base.safetensors";
+/** One SaveGLB per view, numbered from here in batch order. */
+export const DA3_OUTPUT_NODE_BASE = 9100;
+
+export type Da3GraphParams = {
+  /** Keyframe stills inside the ComfyUI input directory, the anchor keyframe first (it becomes the DA3 world frame). */
+  imageFiles: string[];
+  /** filename_prefix of the SaveGLB nodes; the view index is appended. */
+  savePrefix: string;
+  modelName?: string;
+  resolution?: number;
+};
+
+export type Da3Prompt = {graph: ApiGraph; outputNodes: string[]};
+
+/**
+ * The camera-path prompt: ComfyUI's native Depth Anything 3 nodes in multiview mode on
+ * the keyframe stills of one shot, one mesh per view in DA3's shared world (the first view is the
+ * reference, so the world is the anchor camera). ComfyUI ships DA3 only as a mono blueprint, so
+ * this graph is composed from core nodes like the MoGe/SAM3 output bindings; it is an analysis
+ * graph, never a menu entry.
+ */
+export function da3Graph(params: Da3GraphParams): Da3Prompt {
+  if (params.imageFiles.length < 2) throw new Error("A camera path needs at least two keyframes");
+  const graph: ApiGraph = {};
+  params.imageFiles.forEach((file, index) => {
+    graph[String(9000 + 20 + index)] = {class_type: "LoadImage", inputs: {image: file}};
+  });
+  let batch: [string, number] = [String(9020), 0];
+  for (let index = 1; index < params.imageFiles.length; index++) {
+    const id = String(9040 + index);
+    graph[id] = {class_type: "ImageBatch", inputs: {image1: batch, image2: [String(9020 + index), 0]}};
+    batch = [id, 0];
+  }
+  graph["9060"] = {class_type: "LoadDA3Model", inputs: {model_name: params.modelName ?? DA3_MODEL, weight_dtype: "default"}};
+  graph["9061"] = {
+    class_type: "DA3Inference",
+    inputs: {da3_model: ["9060", 0], image: batch, resolution: params.resolution ?? 504, resize_method: "upper_bound_resize", mode: "multiview", "mode.ref_view_strategy": "first", "mode.pose_method": "cam_dec"},
+  };
+  const outputNodes: string[] = [];
+  params.imageFiles.forEach((_, index) => {
+    const mesh = String(9070 + index);
+    const save = String(DA3_OUTPUT_NODE_BASE + index);
+    graph[mesh] = {class_type: "DA3GeometryToMesh", inputs: {da3_geometry: ["9061", 0], batch_index: index, decimation: 2, discontinuity_threshold: 0.04, confidence_threshold: 0.1, use_sky_mask: true, texture: false}};
+    graph[save] = {class_type: "SaveGLB", inputs: {mesh: [mesh, 0], filename_prefix: `${params.savePrefix}-v${index}`}};
+    outputNodes.push(save);
+  });
+  return {graph, outputNodes};
+}

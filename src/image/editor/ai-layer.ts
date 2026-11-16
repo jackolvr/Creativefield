@@ -90,9 +90,38 @@ export function drawModifiedResult(ctx:CanvasRenderingContext2D,bitmap:Bitmap,re
   const src=sourceAligned?{x:0,y:0,w:size.w,h:size.h}:coverSource(size.w,size.h,region);
   ctx.drawImage(bitmap,src.x,src.y,src.w,src.h,region.x,region.y,region.w,region.h);
 }
-export function cutoutModifiedResult(bitmap:Bitmap,region:Rect,matte:ModifyMatte,sourceAligned=false,fiboCrop=false):HTMLCanvasElement{
+/** Per channel gain and offset that bring the model's colours back to the original's, measured only where
+ * nothing was meant to change (the ring around the selection). Pixels are RGBA; `ring` marks pixel indexes.
+ * Too small a ring changes nothing; the gain is clamped so a real edit (new colours inside) is not undone. */
+export function colourMatch(result:Uint8ClampedArray,original:Uint8ClampedArray,ring:ArrayLike<number>):Array<{gain:number;offset:number}>|null{
+  if(ring.length<400)return null;
+  const stats=[0,1,2].map(channel=>{
+    let sr=0,so=0,qr=0,qo=0;
+    for(let k=0;k<ring.length;k++){const i=ring[k]*4+channel,r=result[i],o=original[i];sr+=r;so+=o;qr+=r*r;qo+=o*o;}
+    const n=ring.length,mr=sr/n,mo=so/n,dr=Math.sqrt(Math.max(0,qr/n-mr*mr)),dop=Math.sqrt(Math.max(0,qo/n-mo*mo));
+    // Contrast is only corrected where the ring has real texture: on a flat background a little model noise
+    // would otherwise lower the gain and wash out (desaturate) the whole result. Brightness and tint always.
+    const gain=dr>12&&dop>12?Math.min(1.25,Math.max(.8,dop/dr)):1;
+    return {gain,offset:mo-mr*gain};
+  });
+  return stats;
+}
+export function applyColourMatch(pixels:Uint8ClampedArray,match:Array<{gain:number;offset:number}>):void{
+  for(let i=0;i<pixels.length;i+=4)for(let c=0;c<3;c++)pixels[i+c]=pixels[i+c]*match[c].gain+match[c].offset;
+}
+
+export function cutoutModifiedResult(bitmap:Bitmap,region:Rect,matte:ModifyMatte,sourceAligned=false,fiboCrop=false,original?:HTMLCanvasElement):HTMLCanvasElement{
   const full=blankCanvas(matte.canvas.width,matte.canvas.height),ctx=full.getContext("2d")!;
   drawModifiedResult(ctx,bitmap,region,sourceAligned,fiboCrop);
+  // Colour matching: the model often shifts tone or tint a little; measured against the unchanged ring
+  // around the selection and corrected, so the soft edge only has to blend pixels that already agree.
+  if(original){
+    const r=region,result=ctx.getImageData(r.x,r.y,r.w,r.h),source=original.getContext("2d")!.getImageData(r.x,r.y,r.w,r.h).data;
+    const alpha=matte.canvas.getContext("2d")!.getImageData(r.x,r.y,r.w,r.h).data,ring:number[]=[];
+    for(let p=0;p<r.w*r.h;p++)if(alpha[p*4+3]===0&&source[p*4+3]>0)ring.push(p);
+    const match=colourMatch(result.data,source,ring);
+    if(match){applyColourMatch(result.data,match);ctx.putImageData(result,r.x,r.y);}
+  }
   ctx.globalCompositeOperation="destination-in";ctx.drawImage(matte.canvas,0,0);
   const b=matte.bounds,cropped=blankCanvas(b.w,b.h);
   cropped.getContext("2d")!.drawImage(full,b.x,b.y,b.w,b.h,0,0,b.w,b.h);

@@ -20,6 +20,19 @@
 
 ## What is new
 
+| Quick select finds the parts by itself | Compare zooms both pictures together |
+|---|---|
+| ![Quick select: the picture shimmers while it is analysed, outlines appear, one click selects hair, face, jacket](docs/screens/creativefield/features/quick-select.webp) | ![Compare: before and after side by side, the mouse wheel zooms both](docs/screens/creativefield/features/compare-zoom.webp) |
+| **Detailed upscale redraws tile by tile** | **Before/after tiles on All tools** |
+| ![Detailed Quick upscale on a dragon: finished tiles get a check, the active one shimmers](docs/screens/creativefield/features/detailed-upscale.webp) | ![All tools: the before/after line sweeps on its own and follows the pointer](docs/screens/creativefield/features/before-after-tiles.webp) |
+
+- **FotoField Quick select analyses the picture by itself.** Choose Quick select (S): the picture shimmers while SAM 3 finds the background, the person and their parts (hair, face, clothing, trousers, shoes) or the parts of a scene, outlines appear one by one, and one click selects a part. Shift adds, Alt removes; a field still takes any name.
+- **Modify looks real and blends in.** Fibo, Qwen and MiniMax H3 Image redraw a selection with a little fresh noise in every step, at the size the picture needs (MiniMax at least 8 MP, Fibo 2 MP at 8 steps); the result is colour-matched to its surroundings and fades in across the selection edge. Small blurry details such as a damaged eye are redrawn, not copied.
+- **Compare before and after.** Every image edit opens beside the picture it started from, in the Library and in Runs; the mouse wheel zooms both pictures together and a drag pans both.
+- **Detailed upscale on Fibo.** Quick upscale redraws textured tiles with Fibo 2 (about 4x the fine detail, closer to the original, 18 s per tile) and leaves flat areas alone; a picture up to about 1 MP is done in one run.
+- **FotoField works like a photo editor.** Selections are a thin blue line with a travelling glint, tool letters and shortcuts work after any click, Ctrl+C / Ctrl+V copy a layer and paste it back in place even after many undo steps, Transform frames only the layer's visible pixels, selections may start beside the picture, and new layers are named after the model and the prompt.
+- **New All tools pictures.** Every tile shows the Creative Field characters in a new scene; Swap a thing, New look and Upscale show a real before and after.
+
 - **Keyframes on a timeline.** Put pictures at exact moments, drag them to any second, describe each transition on its own, and get one animation that hits every frame on time. Locally with HyperFlow H3 Flash, online with Seedance 2.5 or MiniMax H3.
 - **Make it real.** Block out a scene with grey 3D shapes and a camera move, and turn that animation into a real-looking video that keeps the camera path, the timing and where everything stands.
 - **Character swap, sharper.** Single-character swaps run on HyperFlow H3 Flash with a qualified handoff from the scene still to the video; multiple characters can be swapped in one clip with MiniMax H3.

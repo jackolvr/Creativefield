@@ -147,6 +147,17 @@
       }
     },
     {
+      "id": "sampler",
+      "label": "Sampler",
+      "type": "select",
+      "options": ["euler", "euler_ancestral"],
+      "default": "euler",
+      "binding": {
+        "node": "459:458",
+        "field": "sampler_name"
+      }
+    },
+    {
       "id": "seed",
       "label": "Seed",
       "type": "integer",

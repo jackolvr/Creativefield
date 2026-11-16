@@ -116,7 +116,9 @@ export function BlockWorkspace({screen,depthRoute,presetTool,onTarget,onRouter,.
       // The clip's own aspect picks the workflow's closest option, so no picture has to be invented.
       const aspectOptions=delivery.manifest.controls.find(control=>control.id==="aspect_ratio")?.options;
       const aspect=handoff?.aspectRatio&&Array.isArray(aspectOptions)?closestAspectOption(handoff.aspectRatio,aspectOptions.map(String)):undefined;
-      presetTool(delivery.manifest,{source_video:assetId},{...(handoff?{prompt:handoff.prompt}:{}),...(aspect?{aspect_ratio:aspect}:{})});
+      // A place picture fills the manifest's first optional image input (the "person, prop or place" slot).
+      const placePort=handoff?.placeAssetId?delivery.manifest.inputs.find(port=>port.type==="image"&&!port.required):undefined;
+      presetTool(delivery.manifest,{source_video:assetId,...(placePort&&handoff?.placeAssetId?{[placePort.id]:handoff.placeAssetId}:{})},{...(handoff?{prompt:handoff.prompt}:{}),...(aspect?{aspect_ratio:aspect}:{})});
       onTarget("local");
       location.hash=nativeWorkflowHash(delivery.manifest);
     }):undefined;

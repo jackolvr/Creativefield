@@ -1,4 +1,36 @@
 import {updateLayer,type Doc,type Layer} from "./doc";
+import {blankCanvas,getBitmap,setBitmap,sizeOf} from "./bitmaps";
+
+/** Bounds of the pixels that are not fully transparent, or null when there are none. */
+export function alphaBounds(data:Uint8ClampedArray,width:number,height:number):{x:number;y:number;w:number;h:number}|null{
+  let x0=width,y0=height,x1=-1,y1=-1;
+  for(let y=0;y<height;y++)for(let x=0;x<width;x++)if(data[(y*width+x)*4+3]>0){if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y;}
+  return x1<0?null:{x:x0,y:y0,w:x1-x0+1,h:y1-y0+1};
+}
+
+/** The layer cut to a part of its bitmap, drawn exactly where that part was: the new centre follows the
+ * layer's flip, scale and rotation. */
+export function trimmedGeometry(layer:Layer,part:{x:number;y:number;w:number;h:number}):Pick<Layer,"x"|"y"|"w"|"h">{
+  const s=layer.scale||1,a=layer.rotation*Math.PI/180;
+  let dx=(part.x+part.w/2-layer.w/2)*s,dy=(part.y+part.h/2-layer.h/2)*s;
+  if(layer.flipX)dx=-dx;
+  return {x:layer.x+dx*Math.cos(a)-dy*Math.sin(a),y:layer.y+dx*Math.sin(a)+dy*Math.cos(a),w:part.w,h:part.h};
+}
+
+/** Photoshop transforms the visible pixels, not the layer's whole canvas: before Free transform the layer is
+ * cut to its non-transparent bounds, so the box sits on the content. Returns null when nothing would change. */
+export function trimLayerToContent(doc:Doc,id:string):Doc|null{
+  const layer=doc.layers.find(item=>item.id===id),bitmap=layer&&getBitmap(layer.src);
+  if(!layer||!bitmap||layer.kind==="adjust"||layer.smartObject)return null;
+  const {w,h}=sizeOf(bitmap),source=blankCanvas(w,h),ctx=source.getContext("2d",{willReadFrequently:true})!;
+  ctx.drawImage(bitmap,0,0);
+  let part:ReturnType<typeof alphaBounds>;
+  try{part=alphaBounds(ctx.getImageData(0,0,w,h).data,w,h);}catch{return null;}
+  if(!part||(part.w===w&&part.h===h))return null;
+  const cut=blankCanvas(part.w,part.h);cut.getContext("2d")!.drawImage(source,part.x,part.y,part.w,part.h,0,0,part.w,part.h);
+  const key=`bmp:trim${Date.now().toString(36)}${Math.random().toString(36).slice(2,6)}`;setBitmap(key,cut);
+  return updateLayer(doc,id,{src:key,...trimmedGeometry({...layer,w,h},part)});
+}
 export type TransformHandle="move"|"rotate"|"nw"|"ne"|"se"|"sw";
 export type TransformPoint={x:number;y:number};
 const corner=(handle:TransformHandle)=>({x:handle.includes("w")?-1:1,y:handle.includes("n")?-1:1});

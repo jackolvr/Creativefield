@@ -213,6 +213,7 @@ function WelcomeDialogDemo(){
     <PresetCard size="tool" featured label="FotoField" hint="Layers, masks and AI edits." thumb="/examples/fotofield.webp" onSelect={pick}/>
     <PresetCard size="tool" label="Make a video" hint="From a photo or a few words." thumb="/examples/video.webp" onSelect={pick}/>
     <PresetCard size="tool" label="Make a picture" hint="Describe it, get a picture." thumb="/examples/picture.webp" onSelect={pick}/>
+    <PresetCard size="tool" label="New look" hint="Before / after: the line sweeps, or follows the pointer." before="/examples/fotofield.webp" thumb="/examples/picture.webp" onSelect={pick}/>
     <PresetCard size="tool" label="3D models" hint="Preview or browse 3D." thumb="/examples/model3d.webp" onSelect={pick}/>
   </>} note={<Meta>Local generation needs a connected ComfyUI worker and its models.</Meta>} action={<Button variant="primary" onClick={()=>setOpen(false)}>Let's create</Button>}/></>;
 }

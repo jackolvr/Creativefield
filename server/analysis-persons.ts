@@ -71,6 +71,9 @@ export type PersonAnalysisInput = {
    * Frame i of the SAM3 flattening maps to frameTimesSec[i]; no fps math.
    */
   frameTimesSec: number[];
+  /** The keyframe of every mask when it is known exactly (one SAM3 run per keyframe); otherwise the
+   *  masks are spread over the frames in batch order (assignMaskFrames). */
+  maskFrames?: number[];
   /** Intrinsics at the mask resolution (width/height are the mask pixel size). */
   intrinsics: CameraIntrinsics;
   floor: FloorPlane;
@@ -366,7 +369,13 @@ export function buildPersonTracks(observations: MaskObservation[], frameCount: n
   const kept = states
     .filter((state) => state.observations.length >= minObservations)
     .sort((a, b) => b.observations.length - a.observations.length || a.observations[0].frameIndex - b.observations[0].frameIndex);
-  return kept.map((state, index) => {
+  /* A ghost in a single keyframe (a blended frame doubling the figure, user decision 2026-11-15): with three
+     or more keyframes, a person seen in only one of them is dropped when another person is seen in all of
+     them. A shot where nobody stays the whole time keeps everyone. */
+  const framesSeen = (state: {observations: MaskObservation[]}) => new Set(state.observations.map((observation) => observation.frameIndex)).size;
+  const steady = frameCount >= 3 && kept.some((state) => framesSeen(state) === frameCount);
+  const lasting = steady ? kept.filter((state) => framesSeen(state) > 1) : kept;
+  return lasting.map((state, index) => {
     // Height is only measured on keyframes with the feet inside the frame; a track made
     // only of prior-based roots keeps the prior value and leaves rawHeightM unset.
     const measured = state.observations
@@ -402,7 +411,10 @@ export async function analyzePersons(input: PersonAnalysisInput): Promise<Person
   if (!frameTimesSec.length) throw new Error("The person pass needs at least one keyframe time");
   const frameCount = frameTimesSec.length;
   const frameTime = (frameIndex: number): number => frameTimesSec[Math.min(frameIndex, frameTimesSec.length - 1)];
-  const {frames, exact, masksPerFrame} = assignMaskFrames(input.masks.length, frameCount);
+  const known = input.maskFrames && input.maskFrames.length === input.masks.length && input.maskFrames.every((frame) => Number.isInteger(frame) && frame >= 0 && frame < frameCount);
+  const {frames, exact, masksPerFrame} = known
+    ? {frames: input.maskFrames!, exact: true, masksPerFrame: input.masks.length % frameCount === 0 && new Set(Array.from({length: frameCount}, (_, frame) => input.maskFrames!.filter((value) => value === frame).length)).size === 1 ? input.masks.length / frameCount : null}
+    : assignMaskFrames(input.masks.length, frameCount);
   const observations: MaskObservation[] = [];
   let cameraHeightFallbackCount = 0;
   const skipped: Array<{filename: string; reason: string}> = [];

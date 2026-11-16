@@ -62,6 +62,8 @@ export type CameraCue = {
   yawDelta: number;
   breathe: number;
   waypoints: CameraPose[];
+  /** Spline only: true when the waypoints name their own targets, so the look-at point follows them too. */
+  waypointTargets?: boolean;
   focus?: FocusAnchor;
   focusStart?: FocusAnchor;
   focusEnd?: FocusAnchor;

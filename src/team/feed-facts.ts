@@ -62,5 +62,9 @@ export function runCardFacts(run:Run,output:Asset|undefined,titles:Record<string
     const done=finishWords(upscale,stepOf),lines=[jobQueueTitle(run.capability_id,titles),`${wall} s`,`${done.join(" · ")} · ${time(upscale.seconds)}`,file].filter(Boolean);
     return {hint:done.join(" · "),lines,compare:{assetId:upscale.sourceAssetId,name:"Original"}};
   }
-  return {hint:generation?.upscaled?"Original":undefined,lines:[jobQueueTitle(run.capability_id,titles),`${wall} s`,file].filter(Boolean)};
+  // An image edit (Modify, FotoField, edit workflows) compares with the picture it started from. Known once the
+  // full view has loaded the run's inputs; image to video is not a side-by-side pair.
+  const source=run.invocation?.inputs?.source_image;
+  const before=source&&output?.content_type?.startsWith("image/")&&source!==output.id?{assetId:source,name:"Before"}:undefined;
+  return {hint:generation?.upscaled?"Original":undefined,lines:[jobQueueTitle(run.capability_id,titles),`${wall} s`,file].filter(Boolean),compare:before};
 }

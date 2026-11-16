@@ -84,4 +84,11 @@
 /* Measured blocking inside the H3 analysis dialog. */
 .cf-h3blocking__stage { height: 240px; overflow: hidden; }
 .cf-h3blocking__stage canvas { display: block; width: 100%; height: 100%; }
+/* Analyze clip: the rebuilt stage large on the left, the measured facts and the brief on the right. */
+.cf-h3analysis__layout { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(260px, 1fr); gap: var(--gap-block); align-items: start; }
+.cf-h3analysis__stage { aspect-ratio: 16 / 10; min-height: 280px; overflow: hidden; display: grid; }
+.cf-h3analysis__stage canvas { display: block; width: 100%; height: 100%; }
+.cf-h3analysis__clip { display: grid; gap: var(--space-1); min-width: 0; }
+.cf-h3analysis__facts { display: flex; flex-direction: column; gap: var(--gap-block); min-width: 0; max-height: 62vh; overflow: auto; }
+@media (max-width: 760px) { .cf-h3analysis__layout { grid-template-columns: minmax(0, 1fr); } }
 

@@ -17,6 +17,10 @@ export type SceneBlockMesh = {
   size: [number, number, number];
   /** Neutral grey shade for the block's kind (three.js hex). */
   shade: number;
+  /** Box, or an upright cylinder of diameter size[0]. */
+  shape: "box" | "cylinder";
+  /** Turn about the vertical in radians (three.js rotation.y). */
+  rotationY: number;
 };
 
 /** A block thinner than this is a sliver, not geometry; keep it barely visible. */
@@ -68,7 +72,8 @@ export function sceneBlockMeshes(blocks: readonly SceneBlock[] | undefined, look
       Math.max(MIN_SIZE_M, Math.abs(block.sizeZ)),
     ];
     const position: [number, number, number] = [block.xM, Math.max(size[1] / 2, block.yM), block.zM];
-    meshes.push({position, size, shade: look === "light" ? previsBlockShade(block.kind) : sceneBlockShade(block.kind)});
+    const yaw = typeof block.yawDeg === "number" && Number.isFinite(block.yawDeg) ? (block.yawDeg * Math.PI) / 180 : 0;
+    meshes.push({position, size, shade: look === "light" ? previsBlockShade(block.kind) : sceneBlockShade(block.kind), shape: block.shape === "cylinder" ? "cylinder" : "box", rotationY: yaw});
     if (meshes.length >= MAX_SCENE_BLOCKS) break;
   }
   return meshes;

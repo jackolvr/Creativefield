@@ -42,7 +42,7 @@ Live reference: run `npm run dev` and open `http://localhost:5173/#ds`.
 
     | Function | Component |
     |---|---|
-    | Upload a file | `UploadSlot` (`tile` inside `UploadPair` for two side by side) |
+    | Upload a file | `UploadSlot` (`tile` inside `UploadPair` for two side by side); a menu entry with no slot on screen ("Open image from device") calls `chooseDeviceFiles` |
     | Choose a picture or clip from the project | `MediaPickerDialog`: this device is the first tile of the grid, the project's media follow; `TeamChoice`/`LibraryChoice` (`upload`), FotoField and Keyframes all open it |
     | Many references for one run (people, products, clothes) | `ReferenceTray` (a `Thumb` per reference with `onRemove`); it carries the cap and the add tile |
     | Text input, any length | `PromptField` (`PromptGroup` for related fields) |
@@ -126,7 +126,11 @@ Live reference: run `npm run dev` and open `http://localhost:5173/#ds`.
 
 72. **Reference mentions are styled while typing.** A reference mention in a `PromptField` (`@Image 1` … `@Image 4`) is a blue token the moment it enters the text — inserted from a reference tile, dropped or typed — not only after the field loses focus. The styled layer sits behind a transparent native textarea so the caret, selection and spellcheck stay native; the layer and the textarea scroll together.
 
-73. **Feed cards mark the upscale step.** In the library feed a result made by a chained finish adds "· Upscaled" beside its app mode badge ("Image to video · Upscaled"); the card stays otherwise clean. The full view tells how it was made (workflow, run time, finish pass, model list in plain words, file format) and a linked pair gets a Compare on/off toggle through the `HistoryItem` / `ResultTile` `viewerCompare` prop. Vertical clips sit side by side at equal size; horizontal clips stack above each other, both keeping the clip's own shape.
+73. **Feed cards mark the upscale step.** In the library feed a result made by a chained finish adds "· Upscaled" beside its app mode badge ("Image to video · Upscaled"); the card stays otherwise clean. The full view tells how it was made (workflow, run time, finish pass, model list in plain words, file format) and a linked pair gets a Compare on/off toggle through the `HistoryItem` / `ResultTile` `viewerCompare` prop. Vertical clips sit side by side at equal size; horizontal clips stack above each other, both keeping the clip's own shape. An image edit pairs with the picture it started from ("Before" / "Result"); for images Compare starts off, so Quick crop and Annotate work on the single picture.
+
+74. **Card actions are one column.** On a quiet `MediaCard` every action is the same dark round button, stacked along the bottom right (the first action lowest); Recreate keeps the bottom centre, delete is the corner X (rule 65), and the mode tag gives way to the info dot on hover. Short words without an icon fit the circle ("3D").
+
+75. **Before/after tiles.** A tool whose result is a change of a picture may show it as `PresetCard before`: the after picture is clipped by an accent line that sweeps slowly on its own and follows the pointer on hover, with quiet "Before" / "After" chips in the bottom corners. Both pictures are real: the after was made from the before by the tool, or for a video tool by its image counterpart on the same model. With reduced motion the line rests in the middle. The tile stays one button; the line is decoration, not a control.
 
 ## Guard (enforced by `npm test`)
 `test/ds-guard.test.ts` fails when feature CSS (`src/team`, `src/ui`) sets color, font, background, border, radius, shadow, opacity or pixel spacing; when feature code uses `style={}`, raw `<details>`, or a raw `<h1-3>` without a `ds-` class; when more than one `ContextBar` is used in `src/team`; when a native file input, raw `<textarea>`, button-styled `<a>` or custom card is used instead of the DS component; when a design-system component is missing from the showcase; or when navigation/tab definitions contain dead disabled entries. Fix the screen by using or adding a DS component, never by loosening the test.

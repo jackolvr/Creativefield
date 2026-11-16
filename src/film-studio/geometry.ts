@@ -947,3 +947,472 @@ export function toContractFloor(floor: FloorPlane): GeometryFloor {
 }
 
 export const VERTICAL_PERSON_HEIGHT_M = 1.75;
+
+/** Eigenvector of the smallest eigenvalue of a symmetric n x n matrix (cyclic Jacobi). */
+function smallestEigenvectorN(matrix: number[][]): number[] {
+  const n = matrix.length;
+  const a = matrix.map((row) => [...row]);
+  const v: number[][] = Array.from({length: n}, (_, i) => Array.from({length: n}, (_, j) => (i === j ? 1 : 0)));
+  for (let sweep = 0; sweep < 100; sweep++) {
+    let off = 0;
+    for (let p = 0; p < n; p++) for (let q = p + 1; q < n; q++) off += a[p][q] * a[p][q];
+    if (off < 1e-22) break;
+    for (let p = 0; p < n; p++) {
+      for (let q = p + 1; q < n; q++) {
+        if (Math.abs(a[p][q]) < 1e-300) continue;
+        const theta = (a[q][q] - a[p][p]) / (2 * a[p][q]);
+        const t = Math.sign(theta || 1) / (Math.abs(theta) + Math.sqrt(theta * theta + 1));
+        const c = 1 / Math.sqrt(t * t + 1);
+        const s = t * c;
+        for (let k = 0; k < n; k++) {
+          const akp = a[k][p];
+          const akq = a[k][q];
+          a[k][p] = c * akp - s * akq;
+          a[k][q] = s * akp + c * akq;
+        }
+        for (let k = 0; k < n; k++) {
+          const apk = a[p][k];
+          const aqk = a[q][k];
+          a[p][k] = c * apk - s * aqk;
+          a[q][k] = s * apk + c * aqk;
+        }
+        for (let k = 0; k < n; k++) {
+          const vkp = v[k][p];
+          const vkq = v[k][q];
+          v[k][p] = c * vkp - s * vkq;
+          v[k][q] = s * vkp + c * vkq;
+        }
+      }
+    }
+  }
+  let best = 0;
+  for (let i = 1; i < n; i++) if (a[i][i] < a[best][best]) best = i;
+  return v.map((row) => row[best]);
+}
+
+/** Where a camera stood and where it looked, in the frame of the points it saw. */
+export type PixelCamera = {center: Vec3; forward: Vec3};
+
+/**
+ * Recover a camera from pixel <-> point pairs of one view (, DA3 multiview meshes: every
+ * vertex is a pixel unprojected into the shared world frame). Direct linear transform on
+ * normalised coordinates; the centre is the null space of the projection and the viewing
+ * direction its third row, both unaffected by how the pixel axes are scaled or flipped.
+ */
+export function cameraFromPixelPoints(points: ArrayLike<number>, pixels: ArrayLike<number>, options: {maxPairs?: number} = {}): PixelCamera | null {
+  const total = Math.min(Math.floor(points.length / 3), Math.floor(pixels.length / 2));
+  const pairs: Array<[number, number, number, number, number]> = [];
+  const stride = Math.max(1, Math.ceil(total / (options.maxPairs ?? 4000)));
+  for (let index = 0; index < total; index += stride) {
+    const x = points[index * 3];
+    const y = points[index * 3 + 1];
+    const z = points[index * 3 + 2];
+    const u = pixels[index * 2];
+    const w = pixels[index * 2 + 1];
+    if ([x, y, z, u, w].every(Number.isFinite)) pairs.push([x, y, z, u, w]);
+  }
+  if (pairs.length < 12) return null;
+  const mean = [0, 0, 0, 0, 0];
+  for (const pair of pairs) for (let k = 0; k < 5; k++) mean[k] += pair[k] / pairs.length;
+  let spread = 0;
+  let pixelSpread = 0;
+  for (const pair of pairs) {
+    spread += Math.hypot(pair[0] - mean[0], pair[1] - mean[1], pair[2] - mean[2]) / pairs.length;
+    pixelSpread += Math.hypot(pair[3] - mean[3], pair[4] - mean[4]) / pairs.length;
+  }
+  if (!(spread > 1e-9) || !(pixelSpread > 1e-9)) return null;
+  const ata = Array.from({length: 12}, () => new Array<number>(12).fill(0));
+  const accumulate = (row: number[]) => {
+    for (let i = 0; i < 12; i++) {
+      if (row[i] === 0) continue;
+      for (let j = 0; j < 12; j++) ata[i][j] += row[i] * row[j];
+    }
+  };
+  for (const pair of pairs) {
+    const X = (pair[0] - mean[0]) / spread;
+    const Y = (pair[1] - mean[1]) / spread;
+    const Z = (pair[2] - mean[2]) / spread;
+    const u = (pair[3] - mean[3]) / pixelSpread;
+    const v = (pair[4] - mean[4]) / pixelSpread;
+    accumulate([X, Y, Z, 1, 0, 0, 0, 0, -u * X, -u * Y, -u * Z, -u]);
+    accumulate([0, 0, 0, 0, X, Y, Z, 1, -v * X, -v * Y, -v * Z, -v]);
+  }
+  const p = smallestEigenvectorN(ata);
+  const m = [
+    [p[0], p[1], p[2]],
+    [p[4], p[5], p[6]],
+    [p[8], p[9], p[10]],
+  ];
+  const t = [p[3], p[7], p[11]];
+  const det = m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+  if (Math.abs(det) < 1e-15) return null;
+  // C = -M^-1 t (Cramer's rule).
+  const solve = (column: number) => {
+    const copy = m.map((row) => [...row]);
+    for (let r = 0; r < 3; r++) copy[r][column] = -t[r];
+    return (copy[0][0] * (copy[1][1] * copy[2][2] - copy[1][2] * copy[2][1]) - copy[0][1] * (copy[1][0] * copy[2][2] - copy[1][2] * copy[2][0]) + copy[0][2] * (copy[1][0] * copy[2][1] - copy[1][1] * copy[2][0])) / det;
+  };
+  const centerNormalized: Vec3 = [solve(0), solve(1), solve(2)];
+  const center: Vec3 = [mean[0] + spread * centerNormalized[0], mean[1] + spread * centerNormalized[1], mean[2] + spread * centerNormalized[2]];
+  let forward = normalize([m[2][0], m[2][1], m[2][2]]);
+  // The seen points lie in front of the camera.
+  let ahead = 0;
+  for (const pair of pairs) ahead += Math.sign((pair[0] - center[0]) * forward[0] + (pair[1] - center[1]) * forward[1] + (pair[2] - center[2]) * forward[2]);
+  if (ahead < 0) forward = scale(forward, -1);
+  return {center, forward};
+}
+
+/** Move one stage point from a keyframe camera frame into the anchor frame: world = R(yawRad) * scale * point + (txM, 0, tzM). */
+export function registeredStagePoint(registration: {yawRad: number; txM: number; tzM: number; scale?: number}, point: Vec3): Vec3 {
+  const cos = Math.cos(registration.yawRad);
+  const sin = Math.sin(registration.yawRad);
+  const scale = registration.scale ?? 1;
+  const x = point[0] * scale;
+  const z = point[2] * scale;
+  return [x * cos + z * sin + registration.txM, point[1] * scale, -x * sin + z * cos + registration.tzM];
+}
+
+/**
+ * Metric scale of one depth map against another of the same view (: DA3 multiview depth is
+ * relative, MoGe is metric): both meshes are binned by their UVs, and the median ratio of the
+ * per-cell median camera distance is the factor that turns `other` lengths into `reference`
+ * lengths. The UV v axis is tried both ways; the tighter ratio spread wins. Null when too few
+ * cells overlap.
+ */
+export function depthScaleBetween(
+  reference: {points: ArrayLike<number>; uvs: ArrayLike<number>},
+  other: {points: ArrayLike<number>; uvs: ArrayLike<number>},
+  options: {cellsX?: number; cellsY?: number} = {},
+): {scale: number; spread: number; cells: number} | null {
+  const cellsX = options.cellsX ?? 48;
+  const cellsY = options.cellsY ?? 27;
+  const binned = (mesh: {points: ArrayLike<number>; uvs: ArrayLike<number>}, flipV: boolean) => {
+    const bins = new Map<number, number[]>();
+    const count = Math.min(Math.floor(mesh.points.length / 3), Math.floor(mesh.uvs.length / 2));
+    for (let index = 0; index < count; index++) {
+      const u = mesh.uvs[index * 2];
+      const rawV = mesh.uvs[index * 2 + 1];
+      const v = flipV ? 1 - rawV : rawV;
+      const distance = Math.hypot(mesh.points[index * 3], mesh.points[index * 3 + 1], mesh.points[index * 3 + 2]);
+      if (!Number.isFinite(u) || !Number.isFinite(v) || !Number.isFinite(distance) || distance <= 0) continue;
+      if (u < 0 || u >= 1 || v < 0 || v >= 1) continue;
+      const key = Math.floor(v * cellsY) * cellsX + Math.floor(u * cellsX);
+      const list = bins.get(key);
+      if (list) list.push(distance);
+      else bins.set(key, [distance]);
+    }
+    const medians = new Map<number, number>();
+    for (const [key, list] of bins) {
+      list.sort((left, right) => left - right);
+      medians.set(key, list[Math.floor(list.length / 2)]);
+    }
+    return medians;
+  };
+  const ref = binned(reference, false);
+  let best: {scale: number; spread: number; cells: number} | null = null;
+  for (const flip of [false, true]) {
+    const oth = binned(other, flip);
+    const ratios: number[] = [];
+    for (const [key, distance] of ref) {
+      const matched = oth.get(key);
+      if (matched) ratios.push(Math.log(distance / matched));
+    }
+    if (ratios.length < 20) continue;
+    ratios.sort((left, right) => left - right);
+    const median = ratios[Math.floor(ratios.length / 2)];
+    const deviations = ratios.map((value) => Math.abs(value - median)).sort((left, right) => left - right);
+    const spread = deviations[Math.floor(deviations.length / 2)];
+    if (!best || spread < best.spread) best = {scale: Math.exp(median), spread, cells: ratios.length};
+  }
+  return best;
+}
+
+export type SetShapeOptions = {
+  /** Grid cell of the occupancy the parts are found on (0.25 m). */
+  cellM?: number;
+  /** Points above the floor that count; the floor itself is drawn by the stage. */
+  minHeightM?: number;
+  yMaxM?: number;
+  zMinM?: number;
+  zMaxM?: number;
+  xMaxAbsM?: number;
+  maxShapes?: number;
+  personRoots?: Array<{xM: number; zM: number}>;
+  personClearanceM?: number;
+  subjectDistanceM?: number;
+};
+
+type ShapeCell = {ix: number; iy: number; iz: number; count: number; sumX: number; sumZ: number};
+
+/** Kasa circle fit on floor-plane points: centre, radius and the RMS of the radial residual. */
+function fitCircle(points: ReadonlyArray<[number, number]>): {cx: number; cz: number; radius: number; rms: number} | null {
+  if (points.length < 6) return null;
+  let mx = 0;
+  let mz = 0;
+  for (const [x, z] of points) {
+    mx += x / points.length;
+    mz += z / points.length;
+  }
+  let suu = 0;
+  let suv = 0;
+  let svv = 0;
+  let suuu = 0;
+  let svvv = 0;
+  let suvv = 0;
+  let svuu = 0;
+  for (const [x, z] of points) {
+    const u = x - mx;
+    const v = z - mz;
+    suu += u * u;
+    suv += u * v;
+    svv += v * v;
+    suuu += u * u * u;
+    svvv += v * v * v;
+    suvv += u * v * v;
+    svuu += v * u * u;
+  }
+  const det = suu * svv - suv * suv;
+  if (Math.abs(det) < 1e-12) return null;
+  const bu = (suuu + suvv) / 2;
+  const bv = (svvv + svuu) / 2;
+  const uc = (bu * svv - bv * suv) / det;
+  const vc = (bv * suu - bu * suv) / det;
+  const radius = Math.sqrt(uc * uc + vc * vc + (suu + svv) / points.length);
+  const cx = mx + uc;
+  const cz = mz + vc;
+  let squared = 0;
+  for (const [x, z] of points) squared += (Math.hypot(x - cx, z - cz) - radius) ** 2;
+  return {cx, cz, radius, rms: Math.sqrt(squared / points.length)};
+}
+
+/** RMS distance of points to their total-least-squares line. */
+function lineRms(points: ReadonlyArray<[number, number]>): number {
+  if (points.length < 2) return 0;
+  let mx = 0;
+  let mz = 0;
+  for (const [x, z] of points) {
+    mx += x / points.length;
+    mz += z / points.length;
+  }
+  let cxx = 0;
+  let czz = 0;
+  let cxz = 0;
+  for (const [x, z] of points) {
+    cxx += (x - mx) ** 2;
+    czz += (z - mz) ** 2;
+    cxz += (x - mx) * (z - mz);
+  }
+  const trace = cxx + czz;
+  const smallest = trace / 2 - Math.sqrt(((cxx - czz) / 2) ** 2 + cxz * cxz);
+  return Math.sqrt(Math.max(0, smallest) / points.length);
+}
+
+/** Best fit of a footprint as two straight runs (a corner), split along the given order. */
+function twoLineRms(ordered: ReadonlyArray<[number, number]>): number {
+  let best = Infinity;
+  for (let split = 3; split <= ordered.length - 3; split++) {
+    const left = ordered.slice(0, split);
+    const right = ordered.slice(split);
+    const rms = Math.sqrt((lineRms(left) ** 2 * left.length + lineRms(right) ** 2 * right.length) / ordered.length);
+    best = Math.min(best, rms);
+  }
+  return best;
+}
+
+/**
+ * The rebuilt set as smooth shapes: occupied cells of the stage points above the floor
+ * are grouped into connected parts; each part becomes an upright cylinder when its footprint lies
+ * on a circle arc (a tank seen from the front), otherwise an oriented box along its main floor axis.
+ * A part whose box would be mostly empty (an L of two walls, a railing around a roof) is split at
+ * the median of its longest side and fitted again. Pure; stage metres, floor at y = 0.
+ */
+export function fitSetShapes(points: ArrayLike<number>, options: SetShapeOptions = {}): SceneBlock[] {
+  const cell = Math.max(0.1, options.cellM ?? 0.25);
+  const minHeight = options.minHeightM ?? 0.1;
+  const yMax = options.yMaxM ?? 12;
+  const zMin = options.zMinM ?? 0.3;
+  const zMax = options.zMaxM ?? 40;
+  const xMax = options.xMaxAbsM ?? 40;
+  const maxShapes = Math.max(1, Math.round(options.maxShapes ?? MAX_SET_BLOCKS));
+  const clearance = options.personClearanceM ?? 0.4;
+  const cells = new Map<string, ShapeCell>();
+  const key = (ix: number, iy: number, iz: number) => `${ix}|${iy}|${iz}`;
+  const count = Math.floor(points.length / 3);
+  for (let index = 0; index < count; index++) {
+    const x = points[index * 3];
+    const y = points[index * 3 + 1];
+    const z = points[index * 3 + 2];
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) continue;
+    if (y < minHeight || y > yMax || z < zMin || z > zMax || Math.abs(x) > xMax) continue;
+    const ix = Math.floor(x / cell);
+    const iy = Math.floor(y / cell);
+    const iz = Math.floor(z / cell);
+    const id = key(ix, iy, iz);
+    const found = cells.get(id);
+    if (found) {
+      found.count += 1;
+      found.sumX += x;
+      found.sumZ += z;
+    } else cells.set(id, {ix, iy, iz, count: 1, sumX: x, sumZ: z});
+  }
+  // Points thin out with distance (a cell covers fewer pixels): the evidence a cell needs falls with z.
+  for (const [id, entry] of cells) {
+    const z = (entry.iz + 0.5) * cell;
+    const needed = Math.max(2, Math.round(12 * (3 / Math.max(3, z)) ** 2));
+    if (entry.count < needed) cells.delete(id);
+  }
+  // Connected parts (26-neighbourhood).
+  const parts: ShapeCell[][] = [];
+  const seen = new Set<string>();
+  for (const [id, start] of cells) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const part: ShapeCell[] = [];
+    const queue = [start];
+    while (queue.length) {
+      const current = queue.pop()!;
+      part.push(current);
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dz = -1; dz <= 1; dz++) {
+            const next = key(current.ix + dx, current.iy + dy, current.iz + dz);
+            if (seen.has(next)) continue;
+            const neighbour = cells.get(next);
+            if (!neighbour) continue;
+            seen.add(next);
+            queue.push(neighbour);
+          }
+        }
+      }
+    }
+    // A part of one to three cells is depth noise, not set.
+    if (part.length >= 4) parts.push(part);
+  }
+
+  type Shape = SceneBlock & {weight: number};
+  const shapes: Shape[] = [];
+  const half = cell / 2;
+  const classify = (centreY: number, sizeX: number, sizeY: number, sizeZ: number, centreZ: number): NonNullable<SceneBlock["kind"]> => {
+    if (centreY - sizeY / 2 <= 0.3 && sizeY <= 0.6) return "ground";
+    if (sizeY >= 1.2 && sizeY > Math.max(sizeX, sizeZ)) return "wall";
+    if (options.subjectDistanceM !== undefined && centreZ > options.subjectDistanceM + 0.5) return "background";
+    return "object";
+  };
+  // Person points are cut before (masks and a 0.5 m cylinder). A small shape still within 0.4 m of a
+  // root is a leftover of the person; a larger one (a wall behind someone) only goes if the person
+  // stands inside it.
+  const nearPerson = (distanceTo: (root: {xM: number; zM: number}) => number, y0: number, y1: number, across: number) =>
+    y1 > 0 && y0 < 2.2 && (options.personRoots ?? []).some((root) => distanceTo(root) < (across <= 1 ? clearance : 0.1));
+  const fit = (part: ShapeCell[], depth: number) => {
+    const centres = part.map((entry) => [(entry.ix + 0.5) * cell, (entry.iy + 0.5) * cell, (entry.iz + 0.5) * cell] as const);
+    const weight = part.reduce((total, entry) => total + entry.count, 0);
+    let yLow = Infinity;
+    let yHigh = -Infinity;
+    for (const centre of centres) {
+      yLow = Math.min(yLow, centre[1] - half);
+      yHigh = Math.max(yHigh, centre[1] + half);
+    }
+    // A part standing just above the floor reaches down to it (MoGe misses the contact line).
+    if (yLow < 0.4) yLow = 0;
+    const sizeY = yHigh - yLow;
+    const centreY = (yLow + yHigh) / 2;
+    // Cylinder: the footprint lies on a circle arc of a plausible radius.
+    // Footprint columns at the centroid of their points (cell centres are too coarse for the arc test).
+    const columns = new Map<string, {x: number; z: number; n: number}>();
+    for (const entry of part) {
+      const id = `${entry.ix}|${entry.iz}`;
+      const column = columns.get(id) ?? {x: 0, z: 0, n: 0};
+      column.x += entry.sumX;
+      column.z += entry.sumZ;
+      column.n += entry.count;
+      columns.set(id, column);
+    }
+    const footprint = new Map<string, [number, number]>([...columns].map(([id, column]) => [id, [column.x / column.n, column.z / column.n]]));
+    // A wall corner also fits an arc roughly: a cylinder must fit clearly better than two straight runs.
+    const circle = footprint.size >= 12 ? fitCircle([...footprint.values()]) : null;
+    const arcOrder = circle ? [...footprint.values()].sort((left, right) => Math.atan2(left[1] - circle.cz, left[0] - circle.cx) - Math.atan2(right[1] - circle.cz, right[0] - circle.cx)) : [];
+    if (circle && circle.radius >= 0.5 && circle.radius <= 4 && circle.rms <= 0.12 * circle.radius && sizeY >= 0.8 && circle.rms < 0.7 * twoLineRms(arcOrder)) {
+      const angles = [...footprint.values()].map(([x, z]) => Math.atan2(z - circle.cz, x - circle.cx)).sort((left, right) => left - right);
+      let largestGap = angles[0] + 2 * Math.PI - angles[angles.length - 1];
+      for (let index = 1; index < angles.length; index++) largestGap = Math.max(largestGap, angles[index] - angles[index - 1]);
+      const coverage = 2 * Math.PI - largestGap;
+      if (coverage >= Math.PI / 2) {
+        const diameter = 2 * circle.radius;
+        if (!nearPerson((root) => Math.max(0, Math.hypot(root.xM - circle.cx, root.zM - circle.cz) - circle.radius), yLow, yHigh, diameter)) {
+          shapes.push({xM: round2(circle.cx), yM: round2(centreY), zM: round2(circle.cz), sizeX: round2(diameter), sizeY: round2(sizeY), sizeZ: round2(diameter), kind: classify(centreY, diameter, sizeY, diameter, circle.cz), shape: "cylinder", weight});
+        }
+        return;
+      }
+    }
+    // Oriented box along the main floor axis of the part.
+    let mx = 0;
+    let mz = 0;
+    for (const centre of centres) {
+      mx += centre[0] / centres.length;
+      mz += centre[2] / centres.length;
+    }
+    let cxx = 0;
+    let czz = 0;
+    let cxz = 0;
+    for (const centre of centres) {
+      cxx += (centre[0] - mx) ** 2;
+      czz += (centre[2] - mz) ** 2;
+      cxz += (centre[0] - mx) * (centre[2] - mz);
+    }
+    let angle = 0.5 * Math.atan2(2 * cxz, cxx - czz);
+    // Near an axis, keep the box square to the stage (grid noise is not a rotation).
+    const snap = Math.round(angle / (Math.PI / 2)) * (Math.PI / 2);
+    if (Math.abs(angle - snap) < (4 * Math.PI) / 180) angle = snap;
+    const ux = Math.cos(angle);
+    const uz = Math.sin(angle);
+    let sLow = Infinity;
+    let sHigh = -Infinity;
+    let tLow = Infinity;
+    let tHigh = -Infinity;
+    const projected = centres.map((centre) => {
+      const s = centre[0] * ux + centre[2] * uz;
+      const t = -centre[0] * uz + centre[2] * ux;
+      sLow = Math.min(sLow, s - half);
+      sHigh = Math.max(sHigh, s + half);
+      tLow = Math.min(tLow, t - half);
+      tHigh = Math.max(tHigh, t + half);
+      return {s, t, y: centre[1]};
+    });
+    const lengthS = sHigh - sLow;
+    const lengthT = tHigh - tLow;
+    const volumeCells = (lengthS / cell) * (lengthT / cell) * (sizeY / cell);
+    const fill = part.length / Math.max(1, volumeCells);
+    // A mostly empty box is two or more things: split at the median of its longest side.
+    if (fill < 0.3 && part.length >= 16 && depth < 8) {
+      const longest = lengthS >= lengthT && lengthS >= sizeY ? "s" : lengthT >= sizeY ? "t" : "y";
+      const values = projected.map((entry) => entry[longest]).sort((left, right) => left - right);
+      const median = values[Math.floor(values.length / 2)];
+      const low: ShapeCell[] = [];
+      const high: ShapeCell[] = [];
+      projected.forEach((entry, index) => (entry[longest] < median ? low : high).push(part[index]));
+      if (low.length && high.length) {
+        fit(low, depth + 1);
+        fit(high, depth + 1);
+        return;
+      }
+    }
+    const s = (sLow + sHigh) / 2;
+    const t = (tLow + tHigh) / 2;
+    const x = s * ux - t * uz;
+    const z = s * uz + t * ux;
+    const footprintDistance = (root: {xM: number; zM: number}) => {
+      const rs = root.xM * ux + root.zM * uz;
+      const rt = -root.xM * uz + root.zM * ux;
+      return Math.hypot(Math.max(0, Math.abs(rs - s) - lengthS / 2), Math.max(0, Math.abs(rt - t) - lengthT / 2));
+    };
+    if (nearPerson(footprintDistance, yLow, yHigh, Math.max(lengthS, lengthT))) return;
+    // three.js rotation.y turns local +x to (cos, 0, -sin): local x follows the main axis.
+    const yawDeg = angle === 0 ? undefined : round2((Math.atan2(-uz, ux) * 180) / Math.PI);
+    shapes.push({xM: round2(x), yM: round2(centreY), zM: round2(z), sizeX: round2(lengthS), sizeY: round2(sizeY), sizeZ: round2(lengthT), kind: classify(centreY, lengthS, sizeY, lengthT, z), shape: "box", ...(yawDeg === undefined ? {} : {yawDeg}), weight});
+  };
+  for (const part of parts) fit(part, 0);
+  shapes.sort((left, right) => right.weight / (1 + right.zM) - left.weight / (1 + left.zM));
+  const kept = shapes.slice(0, maxShapes);
+  kept.sort((left, right) => left.zM - right.zM || left.xM - right.xM || left.yM - right.yM);
+  return kept.map(({weight: _weight, ...block}) => block);
+}

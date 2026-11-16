@@ -42,7 +42,18 @@ export function selectionInstruction(prompt:string,hasSelection:boolean):string 
 }
 
 export const AI_LABELS: Record<AiMode, string> = { modify: "Modify", harmonize: "Harmonize", fill: "Generative fill" };
-export const AI_BUSY: Record<AiMode, string> = { modify: "Modifying…", harmonize: "Harmonizing…", fill: "Filling…" };
+/** A generated layer is named after what was asked and which model did it: "Qwen Edit · make her eyes …".
+ * The prompt is shortened at a word; without a prompt the mode label stands in. The layer row ellipsizes. */
+export function aiLayerName(model: string, prompt: string, fallback: string, max = 60): string {
+  const text = prompt.replace(/\s+/g, " ").trim();
+  const head = model.trim() ? `${model.trim()} · ` : "";
+  if (!text) return head ? `${head}${fallback}` : fallback;
+  const room = Math.max(12, max - head.length);
+  if (text.length <= room) return head + text;
+  const cut = text.slice(0, room - 1), space = cut.lastIndexOf(" ");
+  return `${head}${(space > room * .6 ? cut.slice(0, space) : cut).replace(/[\s,.;:]+$/, "")}…`;
+}
+export const AI_BUSY: Record<AiMode, string> ={ modify: "Modifying…", harmonize: "Harmonizing…", fill: "Filling…" };
 
 const HARMONIZE =
   "Harmonize this composite into one coherent photograph. Integrate the inserted foreground element: correct its perspective, orientation and scale to fit the scene, match lighting direction, color temperature, contrast, contact shadows, reflections and grain. Preserve the element's identity and preserve surrounding objects and text. The second image, when supplied, is the visual reference for the target element; use the first image as the scene context.";

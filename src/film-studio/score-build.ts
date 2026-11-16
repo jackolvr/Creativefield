@@ -19,7 +19,7 @@
  *   exactly the convention documented in `analysis-contract.ts`.
  * Every shot without geometry keeps the heuristic camera the plan described.
  */
-import {lensMmFromHorizontalFov, SENSOR_WIDTH_MM, type GeometryCamera, type PersonTrack, type ShotGeometry} from "./analysis-contract";
+import {lensMmFromHorizontalFov, SENSOR_WIDTH_MM, type CameraPathPose, type GeometryCamera, type PersonTrack, type ShotGeometry} from "./analysis-contract";
 
 export type AnalysisPlan = {
   title?: string;
@@ -104,7 +104,63 @@ export type MeasuredShotCamera = {
   pitch: number;
   yaw: number;
   lens: number;
+  /**
+   * The measured camera over the shot, in time order, when more than one keyframe
+   * registered: the emitter samples it into a spline cue over the shot's own window.
+   */
+  path?: CameraPathPose[];
 };
+
+/** Score camera poses sampled along a measured path (spline start, waypoints, end). */
+export const CAMERA_PATH_SAMPLES = 5;
+
+/** The look-at pose of one measured camera pose: target on the view axis at `distance`. */
+export function cameraPathScorePose(pose: CameraPathPose, distance: number): {target: [number, number, number]; pitch: number; yaw: number} {
+  const heading = (pose.yawDeg * Math.PI) / 180;
+  const pitchDeg = clamp(pose.pitchDeg, CAMERA_PITCH_DEG[0], CAMERA_PITCH_DEG[1]);
+  const pitch = (pitchDeg * Math.PI) / 180;
+  const target: [number, number, number] = [
+    pose.xM + distance * Math.sin(heading) * Math.cos(pitch),
+    pose.heightM - distance * Math.sin(pitch),
+    pose.zM + distance * Math.cos(heading) * Math.cos(pitch),
+  ];
+  return {target, pitch: pitchDeg, yaw: (Math.atan2(pose.xM - target[0], pose.zM - target[2]) * 180) / Math.PI};
+}
+
+/** The measured camera at time t: linear between keyframe poses, held before the first and after the last. */
+export function cameraPathAt(path: readonly CameraPathPose[], timeSec: number): CameraPathPose {
+  if (timeSec <= path[0].timeSec) return path[0];
+  const last = path[path.length - 1];
+  if (timeSec >= last.timeSec) return last;
+  const index = path.findIndex((pose) => pose.timeSec > timeSec);
+  const from = path[index - 1];
+  const to = path[index];
+  const u = (timeSec - from.timeSec) / Math.max(1e-6, to.timeSec - from.timeSec);
+  const mix = (a: number, b: number) => a + (b - a) * u;
+  return {timeSec, xM: mix(from.xM, to.xM), zM: mix(from.zM, to.zM), heightM: mix(from.heightM, to.heightM), yawDeg: mix(from.yawDeg, to.yawDeg), pitchDeg: mix(from.pitchDeg, to.pitchDeg)};
+}
+
+/** Spline poses over [startSec, endSec], yaw unwrapped so the evaluator's Catmull-Rom never spins. */
+export function cameraPathSamples(path: readonly CameraPathPose[], distance: number, startSec: number, endSec: number, count = CAMERA_PATH_SAMPLES): Array<{target: [number, number, number]; pitch: number; yaw: number}> {
+  const samples: Array<{target: [number, number, number]; pitch: number; yaw: number}> = [];
+  for (let index = 0; index < count; index++) {
+    const time = startSec + ((endSec - startSec) * index) / Math.max(1, count - 1);
+    const sample = cameraPathScorePose(cameraPathAt(path, time), distance);
+    const previous = samples[samples.length - 1];
+    if (previous) {
+      while (sample.yaw - previous.yaw > 180) sample.yaw -= 360;
+      while (sample.yaw - previous.yaw < -180) sample.yaw += 360;
+    }
+    samples.push(sample);
+  }
+  return samples;
+}
+
+/** A path is only a move when it travels: a sub-centimetre, sub-half-degree path is a locked-off camera. */
+function pathMoves(path: readonly CameraPathPose[]): boolean {
+  const first = path[0];
+  return path.some((pose) => Math.hypot(pose.xM - first.xM, pose.zM - first.zM, pose.heightM - first.heightM) > 0.02 || Math.abs(pose.yawDeg - first.yawDeg) > 0.5 || Math.abs(pose.pitchDeg - first.pitchDeg) > 0.5);
+}
 
 export type MeasuredEntity = {
   id: string;
@@ -274,6 +330,7 @@ function measuredCamera(camera: GeometryCamera, persons: readonly SanitizedTrack
     : ENVIRONMENT_TARGET_M;
   const distance = clamp(depth / Math.max(0.2, Math.cos(pitchRad)), CAMERA_DISTANCE_M[0], CAMERA_DISTANCE_M[1]);
   const target: [number, number, number] = [0, heightM - distance * Math.sin(pitchRad), distance * Math.cos(pitchRad)];
+  const path = sanitizedCameraPath(camera, rejections, shotIndex);
   return {
     target,
     maneuver: "cut",
@@ -281,7 +338,28 @@ function measuredCamera(camera: GeometryCamera, persons: readonly SanitizedTrack
     pitch: pitchDeg,
     yaw: clamp((Math.atan2(-target[0], -target[2]) * 180) / Math.PI, -360, 360),
     lens,
+    ...(path ? {path} : {}),
   };
+}
+
+/** A camera path carried on a plan shot (the synthesis copies the measured one there). */
+function planCameraPath(raw: unknown): CameraPathPose[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  return sanitizedCameraPath({path: raw} as GeometryCamera, [], -1);
+}
+
+/** A measured camera path the score can use: finite poses in time order, heights in the camera band. */
+function sanitizedCameraPath(camera: GeometryCamera, rejections: GeometryRejection[], shotIndex: number): CameraPathPose[] | undefined {
+  const raw = Array.isArray(camera?.path) ? camera.path : [];
+  const poses = raw
+    .filter((pose) => [pose?.timeSec, pose?.xM, pose?.zM, pose?.heightM, pose?.yawDeg, pose?.pitchDeg].every((value) => typeof value === "number" && Number.isFinite(value)))
+    .filter((pose) => {
+      const usable = pose.heightM > 0.1 && pose.heightM <= 6 && Math.hypot(pose.xM, pose.zM) <= CAMERA_DISTANCE_M[1];
+      if (!usable) rejections.push({shotIndex, field: "camera.path", value: pose.heightM, reason: "A camera path pose is outside the stage; that keyframe is left out of the move."});
+      return usable;
+    })
+    .sort((left, right) => left.timeSec - right.timeSec);
+  return poses.length >= 2 && pathMoves(poses) ? poses : undefined;
 }
 
 /**
@@ -396,6 +474,16 @@ export function measuredGeometryPlan(
   return {entities, blocking, cameras, measuredShotIndices: [...cameras.keys()].sort((left, right) => left - right), heights, rejections};
 }
 
+/** The YAML stage camera of a measured move: a linear spline from the first sampled pose through the rest. */
+function splineCameraLine(samples: ReadonlyArray<{target: number[]; pitch: number; yaw: number}>, distance: number, lens: number): string {
+  const first = samples[0];
+  const last = samples[samples.length - 1];
+  const fixed = (value: number, digits: number) => Number(value.toFixed(digits));
+  const point = (target: number[]) => `[${target.map((value) => fixed(value, 3)).join(", ")}]`;
+  const waypoints = samples.slice(1, -1).map((sample) => `{ target: ${point(sample.target)}, distance: ${fixed(distance, 2)}, pitch: ${fixed(sample.pitch, 2)}, yaw: ${fixed(sample.yaw, 2)} }`);
+  return `    stage_camera: { from: ${point(first.target)}, target: ${point(last.target)}, maneuver: "spline", easing: "linear", distance: ${fixed(distance, 2)}, pitch_start: ${fixed(first.pitch, 2)}, pitch: ${fixed(last.pitch, 2)}, yaw_start: ${fixed(first.yaw, 2)}, yaw_end: ${fixed(last.yaw, 2)}, lens: ${fixed(lens, 0)}mm, waypoints: [${waypoints.join(", ")}] }`;
+}
+
 /**
  * Normalize a plan into the fields the score format needs, and emit it as YAML.
  * With `options.geometry` the measured cast, blocking and cameras replace the
@@ -506,10 +594,15 @@ export function planToScoreYaml(plan: AnalysisPlan, options: ScorePlanOptions = 
             : (characterIds[0] ?? [0, 1.1, 0]);
       const maneuver = measuredCamera ? measuredCamera.maneuver : ["cut", "dolly", "arc", "orbit", "sweep", "spiral", "swoop", "dive", "recoil", "spline"].includes(String(camera.maneuver)) ? String(camera.maneuver) : index === 0 ? "dolly" : "cut";
       const distance = measuredCamera ? measuredCamera.distance : clamp(number(camera.distance, 4), 0.6, 40);
+      // A measured camera that moved over the shot becomes a spline through its sampled poses.
+      // The path comes with the measured geometry or, through the synthesis, on the plan's camera.
+      const measuredPath = measuredCamera?.path ?? planCameraPath(camera.path);
+      const path = measuredPath ? cameraPathSamples(measuredPath, distance, start, end) : undefined;
       return {
         label: text(shot.label, `Shot ${index + 1}`),
         start,
         end,
+        path,
         camera: {
           target,
           maneuver,
@@ -526,7 +619,7 @@ export function planToScoreYaml(plan: AnalysisPlan, options: ScorePlanOptions = 
     const fallback = duration || 12;
     for (let index = 0; index < 3; index++) {
       const start = (fallback / 3) * index;
-      shots.push({label: `Shot ${index + 1}`, start, end: start + fallback / 3, camera: {target: characterIds[0] ?? [0, 1.1, 0], maneuver: index === 0 ? "dolly" : "cut", distance: index === 0 ? 5.5 : 3.2, distanceStart: index === 0 ? 7 : undefined, pitch: 10, yaw: 0, lens: index === 0 ? 35 : 50}});
+      shots.push({label: `Shot ${index + 1}`, start, end: start + fallback / 3, path: undefined, camera: {target: characterIds[0] ?? [0, 1.1, 0], maneuver: index === 0 ? "dolly" : "cut", distance: index === 0 ? 5.5 : 3.2, distanceStart: index === 0 ? 7 : undefined, pitch: 10, yaw: 0, lens: index === 0 ? 35 : 50}});
     }
   }
   const totalDuration = Math.max(duration, shots[shots.length - 1].end, 2);
@@ -552,7 +645,7 @@ export function planToScoreYaml(plan: AnalysisPlan, options: ScorePlanOptions = 
       `    label: ${yamlString(shot.label)}`,
       `    start: ${Number(shot.start.toFixed(2))}`,
       `    end: ${Number(shot.end.toFixed(2))}`,
-      `    stage_camera: { target: ${typeof shot.camera.target === "string" ? yamlString(shot.camera.target) : vector(shot.camera.target)}, maneuver: ${yamlString(shot.camera.maneuver)}, distance: ${Number(shot.camera.distance.toFixed(2))}${shot.camera.distanceStart ? `, distance_start: ${Number(shot.camera.distanceStart.toFixed(2))}` : ""}, pitch: ${Number(shot.camera.pitch.toFixed(1))}, yaw: ${Number(shot.camera.yaw.toFixed(1))}, lens: ${Number(shot.camera.lens.toFixed(0))}mm }`,
+      shot.path ? splineCameraLine(shot.path, shot.camera.distance, shot.camera.lens) : `    stage_camera: { target: ${typeof shot.camera.target === "string" ? yamlString(shot.camera.target) : vector(shot.camera.target)}, maneuver: ${yamlString(shot.camera.maneuver)}, distance: ${Number(shot.camera.distance.toFixed(2))}${shot.camera.distanceStart ? `, distance_start: ${Number(shot.camera.distanceStart.toFixed(2))}` : ""}, pitch: ${Number(shot.camera.pitch.toFixed(1))}, yaw: ${Number(shot.camera.yaw.toFixed(1))}, lens: ${Number(shot.camera.lens.toFixed(0))}mm }`,
     ].join("\n")),
   ];
   // Measured blocking cues are the measured data; a heuristic plan keeps the model's small cue list.

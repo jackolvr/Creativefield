@@ -26,25 +26,6 @@
 .cf-editor-side .ds-panel { align-self: stretch; max-height: none; }
 .cf-layer-head { display: flex; align-items: center; gap: var(--gap-block); }
 .cf-editor-canvas[data-tool="brush"], .cf-editor-canvas[data-tool="eraser"] { cursor: none; }
-/* The top-centre stack: selection modes (while a selection tool is on) and Quick upscale, never on top of each other. */
-.cf-editor-topstack { position: absolute; top: var(--space-4); left: 50%; transform: translateX(-50%); z-index: 6; display: flex; flex-direction: column; align-items: center; gap: var(--space-2); pointer-events: none; }
-.cf-editor-topstack > * { pointer-events: auto; }
-.cf-editor-selectionmodes { position: relative; }
-.cf-editor-subject {
-  position: absolute;
-  left: 50%;
-  bottom: var(--space-4);
-  transform: translateX(-50%);
-  z-index: 4;
-  display: flex;
-  align-items: flex-end;
-  gap: var(--gap-block);
-  width: min(calc(100% - var(--space-8)), calc(var(--panel-w) * 1.6));
-}
-.cf-editor-subject > :first-child {
-  flex: 1;
-  min-width: 0;
-}
 .cf-editor-cropbar {
   position: absolute;
   left: 50%;
@@ -93,3 +74,4 @@
 .cf-modify-actions__spacer { flex: 1; }
 .cf-modify-send { width: 36px; height: 36px; padding: 0; }
 
+.cf-layer-slot { position: relative; }

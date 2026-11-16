@@ -12,7 +12,7 @@ export function RecentDocuments({records, workspaceId, projectId, call, busy, on
   records: EditorDocument[]; workspaceId: string; projectId: string; call: Call; busy: boolean; onOpen: (id: string) => void;
 }) {
   const [previews, setPreviews] = useState<Record<string, string>>({});
-  const recent = records.slice(0, 6);
+  const recent = records.slice(0, 18);
   const signature = recent.map(record => `${record.id}:${record.revision}`).join("|");
   useEffect(() => {
     let active = true;

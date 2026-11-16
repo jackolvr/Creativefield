@@ -237,6 +237,11 @@ export function evaluateCamera(cue: CameraCue, t: number, entities: Map<string, 
     case "spline": {
       if (cue.waypoints.length) {
         const chain = [pose.start, ...cue.waypoints, pose.end];
+        if (cue.waypointTargets) {
+          // Authored waypoint targets: the look-at point follows the path too (a measured pan,).
+          const targets = chain.map((entry) => add(resolveAnchor(entry.target, entities, [0, 1, 0]), entry.targetOffset));
+          target = [0, 1, 2].map((axis) => catmullRomValue(targets.map((point) => point[axis]), u)) as Vec3;
+        }
         distance = catmullRomValue(chain.map((entry) => entry.distance), u);
         pitch = catmullRomValue(chain.map((entry) => entry.pitch), u);
         yaw = catmullRomValue(chain.map((entry) => entry.yaw), u);

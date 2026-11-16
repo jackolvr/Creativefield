@@ -375,7 +375,7 @@ export function buildStageScene(score: StageScore): BuiltScene {
  */
 export function applySceneSet(built: BuiltScene, blocks: readonly SceneBlock[] | undefined, look: SetLook = "studio") {
   const meshes = sceneBlockMeshes(blocks, look);
-  const key = meshes.map((mesh) => `${mesh.position.join(",")}|${mesh.size.join(",")}|${mesh.shade}`).join(";");
+  const key = meshes.map((mesh) => `${mesh.position.join(",")}|${mesh.size.join(",")}|${mesh.shade}|${mesh.shape}|${mesh.rotationY}`).join(";");
   if (key === built.setKey) return;
   built.setKey = key;
   for (const child of [...built.setGroup.children]) {
@@ -384,8 +384,10 @@ export function applySceneSet(built: BuiltScene, blocks: readonly SceneBlock[] |
   }
   for (const entry of meshes) {
     const material = new MeshStandardMaterial({color: entry.shade, roughness: 0.96, metalness: 0});
-    const mesh = new Mesh(new BoxGeometry(entry.size[0], entry.size[1], entry.size[2]), material);
+    const geometry = entry.shape === "cylinder" ? new CylinderGeometry(entry.size[0] / 2, entry.size[0] / 2, entry.size[1], 32) : new BoxGeometry(entry.size[0], entry.size[1], entry.size[2]);
+    const mesh = new Mesh(geometry, material);
     mesh.position.set(entry.position[0], entry.position[1], entry.position[2]);
+    mesh.rotation.y = entry.rotationY;
     built.setGroup.add(mesh);
   }
 }

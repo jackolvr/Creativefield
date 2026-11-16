@@ -47,6 +47,7 @@ import sharp from "sharp";
 import type {
   AnalysisParams,
   AnalysisShot,
+  CameraPathPose,
   ClipFacts,
   GeometryCamera,
   GeometryFloor,
@@ -76,8 +77,12 @@ import {
   toContractFloor,
   peopleScale,
   plausiblePersonHeight,
-  voxelizeSetBands,
+  fitSetShapes,
+  cameraFromPixelPoints,
+  depthScaleBetween,
+  registeredStagePoint,
   type CameraIntrinsics,
+  type Vec3,
   type CameraMeasurement,
   type FloorPlane,
   type FovFit,
@@ -92,7 +97,7 @@ import {
   type MaskImage,
   type PersonAnalysis,
 } from "./analysis-persons";
-import {mogeGraph, sam3Graph} from "./analysis/graphs";
+import {da3Graph, mogeGraph, sam3Graph} from "./analysis/graphs";
 import {ComfyAnalysisClient, filesWithExtension, type ComfyPromptExecution} from "./comfy-analysis-runner";
 import {gltfToCameraPositions, readGlbMesh} from "./glb-mesh";
 import {extractKeyframeStill, ffmpegCommand, probeClip} from "./reference-pyramid";
@@ -189,6 +194,8 @@ export type GeometryEvidence = {
   setSource?: "moge-pointcloud" | "background-estimate";
   /** The factor every length of the shot was scaled by so the measured people come out at a human height (1 = as measured). */
   peopleScale?: number;
+  /** Per keyframe: how its camera registered onto the anchor keyframe, or why it did not. */
+  cameraPath?: Array<{timeSec: number; status: "anchor" | "registered" | "rejected"; reason?: string; yawDeg?: number; txM?: number; tzM?: number}>;
 };
 
 /** Below this floor-fit confidence the measured people set the scale of the shot (peopleScale). */
@@ -197,6 +204,9 @@ export const PEOPLE_SCALE_FLOOR_CONFIDENCE = 0.3;
 /** The keyframe-still person clip the SAM3 pass sees (: 3 frames, not the shot clip). */
 export type PersonClip = {
   path: string;
+  /** One single-frame clip per keyframe, in frame order: SAM3 runs on each alone, so every mask
+   *  belongs to its frame (the video mode returned 4 tracked masks for 3 frames and a phantom person). */
+  framePaths: string[];
   bytes: number;
   frameTimesSec: number[];
   frameCount: number;
@@ -237,9 +247,19 @@ type PreparedShot = {
   candidates: PreparedStill[];
   attempts: Attempt[];
   accepted?: Attempt;
+  /**
+   * DA3 multiview meshes of the keyframes, the anchor keyframe first: one shared world,
+   * the anchor camera at its origin. Undefined when DA3 did not run; `da3Error` says why.
+   */
+  da3Views?: Array<{candidate: PreparedStill; points: Float32Array; uvs: Float32Array}>;
+  da3Error?: string;
   /** The keyframe-still clip the SAM3 person pass sees (not the full shot clip). */
   personClip: PersonClip;
   personClipFile?: string;
+  /** The uploaded single-frame clips, in frame order. */
+  personFrameFiles?: string[];
+  /** The keyframe index of every mask in `masks` (exact, from the per-frame SAM3 runs). */
+  maskFrames?: number[];
   /** Mask PNGs downloaded during the person-first confirmation, reused by the analysis. */
   masks?: MaskImage[];
   /** What the upright-person camera read measured or why it declined (diagnostics only). */
@@ -334,11 +354,11 @@ export function clampedStillTimes(shot: ShotGeometryInput, clipFps: number): num
  * at an explicit frame rate. The frame count is pinned, so the clip has exactly one
  * frame per keyframe regardless of the stills' nominal timing.
  */
-export function personClipArgs(stillPattern: string, frameCount: number, outPath: string, fps = PERSON_PASS_FPS): string[] {
+export function personClipArgs(stillPattern: string, frameCount: number, outPath: string, fps = PERSON_PASS_FPS, startNumber = 0): string[] {
   return [
     "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
     "-framerate", String(fps),
-    "-start_number", "0",
+    "-start_number", String(startNumber),
     "-i", stillPattern,
     "-frames:v", String(frameCount),
     "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
@@ -373,9 +393,16 @@ export async function preparePersonClip(input: {
   }
   const outPath = join(clipDir, `shot-${input.shotIndex}-persons.mp4`);
   await runFfmpeg(personClipArgs(join(stillDir, `shot-${input.shotIndex}-kf-%d.jpg`), input.stillPaths.length, outPath, input.fps ?? PERSON_PASS_FPS));
+  const framePaths: string[] = [];
+  for (let index = 0; index < input.stillPaths.length; index++) {
+    const framePath = join(clipDir, `shot-${input.shotIndex}-persons-f${index}.mp4`);
+    await runFfmpeg(personClipArgs(join(stillDir, `shot-${input.shotIndex}-kf-%d.jpg`), 1, framePath, input.fps ?? PERSON_PASS_FPS, index));
+    framePaths.push(framePath);
+  }
   const probe = await probeClip(outPath);
   return {
     path: outPath,
+    framePaths,
     bytes: (await stat(outPath)).size,
     frameTimesSec: input.frameTimesSec.map((timeSec) => round(timeSec, 3)),
     frameCount: input.stillPaths.length,
@@ -528,7 +555,7 @@ export async function runGeometryBatch(input: GeometryBatchInput): Promise<Geome
           shot,
           candidates,
           attempts: [],
-          personClip: personClip ?? {path: "", bytes: 0, frameTimesSec: [], frameCount: 0, width: 0, height: 0, fps: PERSON_PASS_FPS},
+          personClip: personClip ?? {path: "", framePaths: [], bytes: 0, frameTimesSec: [], frameCount: 0, width: 0, height: 0, fps: PERSON_PASS_FPS},
         };
         if (!candidates.length) {
           entry.error = input.stills
@@ -557,8 +584,10 @@ export async function runGeometryBatch(input: GeometryBatchInput): Promise<Geome
             candidate.file = await client.upload(`cfgeom-${token}-s${entry.shot.index}-${candidate.role}.jpg`, await readFileBytes(candidate.path), "image/jpeg");
           }),
           async () => {
-            const token = sanitize(input.cacheKey).slice(0, 12);
-            entry.personClipFile = await client.upload(`cfgeom-${token}-s${entry.shot.index}-persons.mp4`, await readFileBytes(entry.personClip.path), "video/mp4");
+            const token = sanitize(input.cacheKey).slice(0, 12), frames = entry.personClip.framePaths;
+            entry.personFrameFiles = [];
+            for (const [index, framePath] of frames.entries()) entry.personFrameFiles.push(await client.upload(`cfgeom-${token}-s${entry.shot.index}-persons-f${index}of${frames.length}.mp4`, await readFileBytes(framePath), "video/mp4"));
+            entry.personClipFile = entry.personFrameFiles[0];
           },
         ]),
       4,
@@ -578,11 +607,16 @@ export async function runGeometryBatch(input: GeometryBatchInput): Promise<Geome
     //    people_count hint: a person-positive shot d3 called empty must still be measured.
     const personPositive: PreparedShot[] = [];
     const noPerson: Array<{entry: PreparedShot; reason: string}> = [];
-    const sam3Submitted: Array<{entry: PreparedShot; promptId: string}> = [];
+    // One SAM3 prompt per keyframe: its masks belong to that frame, nothing is guessed afterwards.
+    const sam3Submitted: Array<{entry: PreparedShot; promptIds: string[]}> = [];
     for (const entry of prepared.filter((candidate) => !candidate.error)) {
       try {
-        const prompt = sam3Graph({videoFile: entry.personClipFile!, savePrefix: `analysis/persons/s${entry.shot.index}`, modelName: input.params.models.persons, prompt: "person:4"});
-        sam3Submitted.push({entry, promptId: await client.submit(prompt.graph)});
+        const promptIds: string[] = [];
+        for (const [frame, file] of (entry.personFrameFiles ?? []).entries()) {
+          const prompt = sam3Graph({videoFile: file, savePrefix: `analysis/persons/s${entry.shot.index}-f${frame}`, modelName: input.params.models.persons, prompt: "person:4"});
+          promptIds.push(await client.submit(prompt.graph));
+        }
+        sam3Submitted.push({entry, promptIds});
       } catch (error) {
         entry.error = `person pass could not run; skipped (SAM3 prompt was rejected: ${errorText(error)})`;
         errors.push({shotIndex: entry.shot.index, message: entry.error});
@@ -592,27 +626,30 @@ export async function runGeometryBatch(input: GeometryBatchInput): Promise<Geome
       const readyAt = Date.now() - started;
       let waitError: string | undefined;
       try {
-        await client.waitAll(sam3Submitted.map(({promptId}) => promptId), {timeoutMs: Math.max(60_000, BATCH_TIMEOUT_MS - readyAt)});
+        await client.waitAll(sam3Submitted.flatMap(({promptIds}) => promptIds), {timeoutMs: Math.max(60_000, BATCH_TIMEOUT_MS - readyAt)});
       } catch (error) {
         waitError = `Geometry batch interrupted: ${errorText(error)}`;
       }
-      for (const {entry, promptId} of sam3Submitted) {
-        const execution = (await client.history(promptId).catch(() => undefined)) ?? {promptId, status: "pending" as const, outputs: {}};
+      for (const {entry, promptIds} of sam3Submitted) {
+        const frames = await Promise.all(promptIds.map(async (promptId) => (await client.history(promptId).catch(() => undefined)) ?? {promptId, status: "pending" as const, outputs: {}}));
+        // SAM3_Detect in the unchanged blueprint raises IndexError when a frame has zero detections
+        // instead of returning an empty mask batch (ComfyUI 0.37.0): that frame simply has no person.
+        const emptyDetection = (execution: ComfyPromptExecution) => execution.status !== "completed" && /index 0 is out of bounds|size 0\b/i.test(execution.message ?? "");
+        const broken = frames.find((execution) => execution.status !== "completed" && !emptyDetection(execution));
+        const masksOut = frames.flatMap((execution) => (execution.status === "completed" ? execution.outputs["9002"] ?? [] : []));
+        entry.maskFrames = frames.flatMap((execution, frame) => (execution.status === "completed" ? execution.outputs["9002"] ?? [] : []).map(() => frame));
+        // One combined execution in frame order, so the rest of the batch reads it as before.
+        const execution: ComfyPromptExecution = broken ?? {promptId: promptIds[0] ?? "", status: "completed", outputs: {"9002": masksOut}, durationMs: frames.reduce((sum, item) => sum + (item.durationMs ?? 0), 0)};
         entry.sam3Execution = execution;
-        entry.sam3PromptId = promptId;
+        entry.sam3PromptId = promptIds[0];
         if (execution.status !== "completed") {
           const detail = execution.message ?? waitError ?? execution.status;
-          // SAM3_Detect in the unchanged blueprint raises IndexError when a frame has zero
-          // detections instead of returning an empty mask batch (ComfyUI 0.37.0). That failure
-          // IS the confirmation of an empty keyframe set - the title-card case - so it maps to
-          // the same "no person" skip instead of a generic model failure.
-          const emptyDetection = /index 0 is out of bounds|size 0\b/i.test(detail);
-          if (emptyDetection) {
-            noPerson.push({entry, reason: `no person masks on ${entry.personClip.frameCount} keyframes (SAM3 detected nothing)`});
-            continue;
-          }
           entry.error = `person pass failed; skipped (SAM3 run ${execution.status === "failed" ? "failed" : "did not finish"}: ${detail})`;
           errors.push({shotIndex: entry.shot.index, message: entry.error});
+          continue;
+        }
+        if (!masksOut.length && frames.some(emptyDetection)) {
+          noPerson.push({entry, reason: `no person masks on ${entry.personClip.frameCount} keyframes (SAM3 detected nothing)`});
           continue;
         }
         const maskCount = execution.outputs["9002"]?.length ?? 0;
@@ -702,6 +739,47 @@ export async function runGeometryBatch(input: GeometryBatchInput): Promise<Geome
       // A plane tilted far from vertical can never become the floor on another still: stop
       // burning MoGe rounds and let the estimated (anchor-based) path take over.
       remaining = mogeShots.filter((entry) => !entry.error && !entry.accepted && !clearlyNotFloor(entry));
+    }
+    // 4b. Camera path: one DA3 multiview prompt per shot with an accepted floor, on all
+    //     keyframe stills with the accepted one first, so the DA3 world is the anchor camera.
+    const da3Submitted: Array<{entry: PreparedShot; promptId: string; order: PreparedStill[]}> = [];
+    for (const entry of mogeShots) {
+      if (entry.error || !entry.accepted || entry.candidates.length < 2) continue;
+      const order = [entry.accepted.candidate, ...entry.candidates.filter((candidate) => candidate !== entry.accepted!.candidate)];
+      try {
+        const prompt = da3Graph({imageFiles: order.map((candidate) => candidate.file!), savePrefix: `analysis/geometry/s${entry.shot.index}-da3`});
+        da3Submitted.push({entry, promptId: await client.submit(prompt.graph), order});
+      } catch (error) {
+        entry.da3Error = `DA3 prompt was rejected: ${errorText(error)}`;
+      }
+    }
+    if (da3Submitted.length) {
+      const timeoutMs = Math.max(60_000, BATCH_TIMEOUT_MS - (Date.now() - started));
+      try {
+        await client.waitAll(da3Submitted.map(({promptId}) => promptId), {timeoutMs});
+      } catch (error) {
+        for (const {entry} of da3Submitted) entry.da3Error = `DA3 interrupted: ${errorText(error)}`;
+      }
+      for (const {entry, promptId, order} of da3Submitted) {
+        if (entry.da3Error) continue;
+        const execution = await client.history(promptId).catch(() => undefined);
+        if (!execution || execution.status !== "completed") {
+          entry.da3Error = `DA3 run ${execution?.status ?? "did not finish"}${execution?.message ? `: ${execution.message}` : ""}`;
+          continue;
+        }
+        try {
+          const views: NonNullable<PreparedShot["da3Views"]> = [];
+          for (const [index, candidate] of order.entries()) {
+            const file = filesWithExtension(execution.outputs[String(9100 + index)] ?? [], "glb")[0];
+            if (!file) throw new Error(`view ${index} wrote no mesh`);
+            const mesh = readGlbMesh(new Uint8Array(await client.download(file)));
+            views.push({candidate, points: gltfToCameraPositions(mesh.positions), uvs: mesh.uvs});
+          }
+          entry.da3Views = views;
+        } catch (error) {
+          entry.da3Error = `DA3 meshes could not be read: ${errorText(error)}`;
+        }
+      }
     }
     // 5a. Measured shots first: they are the neighbour-floor camera-height source for estimates.
     //     A person-positive shot whose roots cannot be placed on the measured floor falls through
@@ -872,7 +950,7 @@ async function buildEstimatedShot(
   const fovAttempt = entry.attempts.find((attempt) => attempt.result?.fov);
   const fov = fovAttempt?.result?.fov ?? null;
   if (!fov || !fovAttempt) return fail(`no usable floor and no MoGe lens fit for the estimated distance (kept blockout); tried ${describeAttempts(entry)}`, []);
-  const {frames} = assignMaskFrames(masks.length, frameTimesSec.length);
+  const frames = maskFramesOf(entry);
   const frameTime = (frameIndex: number): number => frameTimesSec[Math.min(frameIndex, Math.max(0, frameTimesSec.length - 1))];
   // EVERY usable mask becomes a person observation with its own anchor/distance/root; the
   // tracks are associated across the sparse keyframes below (multi-person close-ups).
@@ -1114,10 +1192,16 @@ async function maskBitmap(bytes: Buffer): Promise<{width: number; height: number
  * SAM3 returns one mask per person per frame, so a frame with two people has two masks; all of
  * them are cut from the mesh, or the second person is voxelized into set blocks.
  */
+/** The keyframe of every mask: exact from the per-frame SAM3 runs, else spread in frame order (older caches). */
+function maskFramesOf(entry: PreparedShot): number[] {
+  const masks = entry.masks ?? [];
+  return entry.maskFrames && entry.maskFrames.length === masks.length ? entry.maskFrames : assignMaskFrames(masks.length, entry.personClip.frameTimesSec.length).frames;
+}
+
 function maskIndicesForStillTime(entry: PreparedShot, stillTimeSec: number): number[] {
   const masks = entry.masks ?? [];
   if (!masks.length || !entry.personClip.frameTimesSec.length) return [];
-  const {frames} = assignMaskFrames(masks.length, entry.personClip.frameTimesSec.length);
+  const frames = maskFramesOf(entry);
   const deltas = masks.map((_, index) => Math.abs(entry.personClip.frameTimesSec[Math.min(frames[index], entry.personClip.frameTimesSec.length - 1)] - stillTimeSec));
   const best = Math.min(...deltas);
   if (best > 0.12) return [];
@@ -1277,6 +1361,162 @@ function maskCovers(bitmap: {width: number; height: number; data: Uint8Array}, u
  * a level floor tilted by the estimated pitch at the estimated camera height: the
  * set is rebuilt for every shot that has a MoGe mesh, not only for measured ones.
  */
+/**
+ * The set points of one keyframe MoGe mesh in that keyframe's own stage frame: scaled, the person
+ * masks of that keyframe cut out, and a 0.5 m cylinder (0..2.2 m) around every given root removed.
+ */
+async function keyframeStagePoints(input: {
+  entry: PreparedShot;
+  attempt: Attempt;
+  floor: Pick<FloorPlane, "normal" | "offsetM">;
+  roots: Array<{xM: number; zM: number}>;
+  scale?: number;
+}): Promise<number[]> {
+  const mesh = input.attempt.result?.mesh;
+  if (!mesh?.positions?.length) return [];
+  const basis = sceneBasis(input.floor);
+  const maskIndices = mesh.hasUvs ? maskIndicesForStillTime(input.entry, input.attempt.candidate.timeSec) : [];
+  const bitmaps = (await Promise.all(maskIndices.map((index) => maskBitmap(input.entry.masks![index].bytes).catch(() => undefined)))).filter(
+    (bitmap): bitmap is {width: number; height: number; data: Uint8Array} => bitmap !== undefined,
+  );
+  const scale = input.scale ?? 1;
+  const stagePoints: number[] = [];
+  const vertexCount = Math.floor(mesh.positions.length / 3);
+  for (let vertex = 0; vertex < vertexCount; vertex++) {
+    const cameraPoint: [number, number, number] = [mesh.positions[vertex * 3] * scale, mesh.positions[vertex * 3 + 1] * scale, mesh.positions[vertex * 3 + 2] * scale];
+    if (!Number.isFinite(cameraPoint[0]) || !Number.isFinite(cameraPoint[1]) || !Number.isFinite(cameraPoint[2])) continue;
+    if (bitmaps.length && bitmaps.some((bitmap) => maskCovers(bitmap, mesh.uvs[vertex * 2], mesh.uvs[vertex * 2 + 1]))) continue;
+    const stage = stagePointFromCamera(input.floor, basis, cameraPoint);
+    const inPerson = input.roots.some((root) => stage[1] > -0.2 && stage[1] < 2.2 && Math.hypot(stage[0] - root.xM, stage[2] - root.zM) < 0.5);
+    if (inPerson) continue;
+    stagePoints.push(stage[0], stage[1], stage[2]);
+  }
+  return stagePoints;
+}
+
+/** Registered keyframes of the camera path: their set points, already in the anchor frame. */
+type PathKeyframe = {timeSec: number; registration: {yawRad: number; txM: number; tzM: number}; worldPoints: number[]};
+
+/** A pose this far from the anchor is not a camera move inside one shot. */
+const PATH_MAX_TRAVEL_M = 40;
+const PATH_MAX_YAW_DEG = 150;
+/** Above this log-spread the DA3 depth does not match the MoGe depth well enough to borrow its scale. */
+const PATH_MAX_SCALE_SPREAD = 0.2;
+
+/**
+ * The camera over the shot from the DA3 multiview meshes: each view is a camera recovered
+ * from its pixel/point pairs in the shared DA3 world (the anchor camera frame). The MoGe anchor gives
+ * what DA3 lacks: up (its floor normal, same camera frame) and metric scale (median MoGe/DA3 depth
+ * ratio over the same pixels, times the people scale). Person roots of a keyframe, measured in that
+ * keyframe camera frame, move with its pose; the other views add their set points.
+ */
+async function measureCameraPath(input: {
+  entry: PreparedShot;
+  anchorFloor: Pick<FloorPlane, "normal" | "offsetM">;
+  anchorCamera: {heightM: number; pitchDeg: number};
+  persons: PersonTrack[];
+  scale: number;
+}): Promise<{path: CameraPathPose[]; keyframes: PathKeyframe[]; evidence: NonNullable<GeometryEvidence["cameraPath"]>}> {
+  const accepted = input.entry.accepted!;
+  const anchorTime = round(accepted.candidate.timeSec, 3);
+  const anchorPose: CameraPathPose = {timeSec: anchorTime, xM: 0, zM: 0, heightM: round(input.anchorCamera.heightM, 3), yawDeg: 0, pitchDeg: round(input.anchorCamera.pitchDeg, 2)};
+  const evidence: NonNullable<GeometryEvidence["cameraPath"]> = [{timeSec: anchorTime, status: "anchor"}];
+  const still = {path: [anchorPose], keyframes: [] as PathKeyframe[], evidence};
+  const views = input.entry.da3Views;
+  const mesh = accepted.result?.mesh;
+  if (!views || views.length < 2 || !mesh?.hasUvs) {
+    evidence[0].reason = input.entry.da3Error ?? (views ? "only one keyframe" : "DA3 did not run");
+    return still;
+  }
+  const depth = depthScaleBetween({points: mesh.positions, uvs: mesh.uvs}, {points: views[0].points, uvs: views[0].uvs});
+  if (!depth || depth.spread > PATH_MAX_SCALE_SPREAD) {
+    evidence[0].reason = depth ? `DA3 depth does not match MoGe (log spread ${round(depth.spread, 3)})` : "DA3 and MoGe share too few pixels";
+    return still;
+  }
+  const metric = depth.scale * input.scale;
+  evidence[0].reason = `DA3 scale ${round(metric, 3)} (log spread ${round(depth.spread, 3)}, ${depth.cells} cells)`;
+  const basis = sceneBasis(input.anchorFloor);
+  const project = (vector: readonly number[]) => [
+    vector[0] * basis.right[0] + vector[1] * basis.right[1] + vector[2] * basis.right[2],
+    vector[0] * basis.up[0] + vector[1] * basis.up[1] + vector[2] * basis.up[2],
+    vector[0] * basis.forward[0] + vector[1] * basis.forward[1] + vector[2] * basis.forward[2],
+  ];
+  const poses = views.map((view) => {
+    const camera = cameraFromPixelPoints(view.points, view.uvs);
+    if (!camera) return null;
+    const stage = stagePointFromCamera(input.anchorFloor, basis, [camera.center[0] * metric, camera.center[1] * metric, camera.center[2] * metric]);
+    const forward = project(camera.forward);
+    return {stage, yawRad: Math.atan2(forward[0], forward[2]), pitchDeg: (Math.asin(Math.max(-1, Math.min(1, -forward[1]))) * 180) / Math.PI};
+  });
+  const anchor = poses[0];
+  if (!anchor) {
+    evidence[0].reason = "no camera could be recovered from the anchor DA3 view";
+    return still;
+  }
+  // Everything relative to the recovered anchor pose (ideally the identity already).
+  const cos = Math.cos(-anchor.yawRad);
+  const sin = Math.sin(-anchor.yawRad);
+  const relative = (point: readonly number[]): Vec3 => {
+    const dx = point[0] - anchor.stage[0];
+    const dz = point[2] - anchor.stage[2];
+    return [dx * cos + dz * sin, point[1], -dx * sin + dz * cos];
+  };
+  const path: CameraPathPose[] = [anchorPose];
+  const keyframes: PathKeyframe[] = [];
+  for (const [index, view] of views.entries()) {
+    if (index === 0) continue;
+    const timeSec = round(view.candidate.timeSec, 3);
+    const pose = poses[index];
+    if (!pose) {
+      evidence.push({timeSec, status: "rejected", reason: "no camera could be recovered from this DA3 view"});
+      continue;
+    }
+    const position = relative(pose.stage);
+    const yawDeg = ((pose.yawRad - anchor.yawRad) * 180) / Math.PI;
+    const wrappedYaw = ((((yawDeg + 180) % 360) + 360) % 360) - 180;
+    if (Math.hypot(position[0], position[2]) > PATH_MAX_TRAVEL_M || Math.abs(wrappedYaw) > PATH_MAX_YAW_DEG) {
+      evidence.push({timeSec, status: "rejected", reason: "the camera would have travelled further than one shot plausibly does", yawDeg: round(wrappedYaw, 2), txM: round(position[0], 3), tzM: round(position[2], 3)});
+      continue;
+    }
+    const heightM = Math.max(0.1, input.anchorCamera.heightM + (pose.stage[1] - anchor.stage[1]));
+    const pitchDeg = input.anchorCamera.pitchDeg + (pose.pitchDeg - anchor.pitchDeg);
+    path.push({timeSec, xM: round(position[0], 3), zM: round(position[2], 3), heightM: round(heightM, 3), yawDeg: round(wrappedYaw, 2), pitchDeg: round(pitchDeg, 2)});
+    evidence.push({timeSec, status: "registered", yawDeg: round(wrappedYaw, 2), txM: round(position[0], 3), tzM: round(position[2], 3)});
+    // The view's own set points, person masks of that keyframe cut out (the cylinder follows in the set build).
+    const maskIndices = maskIndicesForStillTime(input.entry, view.candidate.timeSec);
+    const bitmaps = (await Promise.all(maskIndices.map((maskIndex) => maskBitmap(input.entry.masks![maskIndex].bytes).catch(() => undefined)))).filter(
+      (bitmap): bitmap is {width: number; height: number; data: Uint8Array} => bitmap !== undefined,
+    );
+    const worldPoints: number[] = [];
+    const count = Math.min(Math.floor(view.points.length / 3), Math.floor(view.uvs.length / 2));
+    for (let vertex = 0; vertex < count; vertex++) {
+      const point: Vec3 = [view.points[vertex * 3] * metric, view.points[vertex * 3 + 1] * metric, view.points[vertex * 3 + 2] * metric];
+      if (!point.every(Number.isFinite)) continue;
+      if (bitmaps.length && bitmaps.some((bitmap) => maskCovers(bitmap, view.uvs[vertex * 2], view.uvs[vertex * 2 + 1]))) continue;
+      const world = relative(stagePointFromCamera(input.anchorFloor, basis, point));
+      worldPoints.push(world[0], world[1], world[2]);
+    }
+    keyframes.push({timeSec: view.candidate.timeSec, registration: {yawRad: (wrappedYaw * Math.PI) / 180, txM: position[0], tzM: position[2]}, worldPoints});
+  }
+  path.sort((left, right) => left.timeSec - right.timeSec);
+  evidence.sort((left, right) => left.timeSec - right.timeSec);
+  return {path, keyframes, evidence};
+}
+
+/** Person roots measured on a registered keyframe move into the anchor frame with that keyframe camera. */
+function personsInAnchorFrame(persons: PersonTrack[], keyframes: readonly PathKeyframe[]): PersonTrack[] {
+  if (!keyframes.length) return persons;
+  return persons.map((person) => ({
+    ...person,
+    keyframes: person.keyframes.map((keyframe) => {
+      const registered = keyframes.find((entry) => Math.abs(entry.timeSec - keyframe.timeSec) < 0.12);
+      if (!registered) return keyframe;
+      const world = registeredStagePoint(registered.registration, [keyframe.xM, 0, keyframe.zM]);
+      return {...keyframe, xM: round(world[0], 3), zM: round(world[2], 3)};
+    }),
+  }));
+}
+
 async function buildPointcloudSet(input: {
   entry: PreparedShot;
   attempt: Attempt;
@@ -1284,33 +1524,23 @@ async function buildPointcloudSet(input: {
   persons: PersonTrack[];
   /** Multiplies the mesh before it is placed (peopleScale); the floor and persons come in already scaled. */
   scale?: number;
+  /** Set points of the other registered keyframes, already in the anchor frame (a pan reveals more set). */
+  extraPoints?: readonly number[][];
 }): Promise<{set: SceneBlock[]; setSource: "moge-pointcloud"}> {
-  const mesh = input.attempt.result?.mesh;
   const empty = {set: [] as SceneBlock[], setSource: "moge-pointcloud" as const};
-  if (!mesh?.positions?.length) return empty;
-  const basis = sceneBasis(input.floor);
   const roots = input.persons.flatMap((person) => person.keyframes.map((keyframe) => ({xM: keyframe.xM, zM: keyframe.zM})));
-  const maskIndices = mesh.hasUvs ? maskIndicesForStillTime(input.entry, input.attempt.candidate.timeSec) : [];
-  const bitmaps = (await Promise.all(maskIndices.map((index) => maskBitmap(input.entry.masks![index].bytes).catch(() => undefined)))).filter(
-    (bitmap): bitmap is {width: number; height: number; data: Uint8Array} => bitmap !== undefined,
-  );
-  const stagePoints: number[] = [];
-  const vertexCount = Math.floor(mesh.positions.length / 3);
-  for (let vertex = 0; vertex < vertexCount; vertex++) {
-    const scale = input.scale ?? 1;
-    const cameraPoint: [number, number, number] = [mesh.positions[vertex * 3] * scale, mesh.positions[vertex * 3 + 1] * scale, mesh.positions[vertex * 3 + 2] * scale];
-    if (!Number.isFinite(cameraPoint[0]) || !Number.isFinite(cameraPoint[1]) || !Number.isFinite(cameraPoint[2])) continue;
-    if (bitmaps.length && bitmaps.some((bitmap) => maskCovers(bitmap, mesh.uvs[vertex * 2], mesh.uvs[vertex * 2 + 1]))) continue;
-    const stage = stagePointFromCamera(input.floor, basis, cameraPoint);
-    // Fallback person removal: a 0.5 m cylinder, 0..2.2 m, around every person root.
-    const inPerson = roots.some((root) => stage[1] > -0.2 && stage[1] < 2.2 && Math.hypot(stage[0] - root.xM, stage[2] - root.zM) < 0.5);
-    if (inPerson) continue;
-    stagePoints.push(stage[0], stage[1], stage[2]);
+  const stagePoints = await keyframeStagePoints({entry: input.entry, attempt: input.attempt, floor: input.floor, roots, scale: input.scale});
+  for (const extra of input.extraPoints ?? []) {
+    for (let index = 0; index + 2 < extra.length; index += 3) {
+      // The fallback person cylinder also applies to the moved points (people in the anchor frame).
+      const inPerson = roots.some((root) => extra[index + 1] > -0.2 && extra[index + 1] < 2.2 && Math.hypot(extra[index] - root.xM, extra[index + 2] - root.zM) < 0.5);
+      if (!inPerson) stagePoints.push(extra[index], extra[index + 1], extra[index + 2]);
+    }
   }
   if (!stagePoints.length) return empty;
   const subjectDistance = roots.length ? Math.min(...roots.map((root) => Math.hypot(root.xM, root.zM))) : undefined;
-  const set = voxelizeSetBands(Float32Array.from(stagePoints), {
-    minPointsPerCell: 12,
+  // Smooth shapes per connected part: slabs, oriented boxes and upright cylinders.
+  const set = fitSetShapes(Float32Array.from(stagePoints), {
     personRoots: roots,
     personClearanceM: 0.4,
     subjectDistanceM: subjectDistance,
@@ -1417,7 +1647,9 @@ async function analyzeAcceptedShot(client: ComfyAnalysisClient, entry: PreparedS
   const diagnosticsDir = join(artifactsDir, "diagnostics", `shot-${entry.shot.index}`);
   if (entry.environment) {
     // SAM3 confirmed no person: the measured floor places the camera, the mesh rebuilds the set.
-    const built = await buildPointcloudSet({entry, attempt: accepted, floor, persons: []}).catch(() => ({set: [] as SceneBlock[], setSource: "moge-pointcloud" as const}));
+    const cameraPath = await measureCameraPath({entry, anchorFloor: floor, anchorCamera: cameraMeasurement, persons: [], scale: 1}).catch(() => undefined);
+    if (cameraPath) baseEvidence.cameraPath = cameraPath.evidence;
+    const built = await buildPointcloudSet({entry, attempt: accepted, floor, persons: [], extraPoints: cameraPath?.keyframes.map((keyframe) => keyframe.worldPoints)}).catch(() => ({set: [] as SceneBlock[], setSource: "moge-pointcloud" as const}));
     baseEvidence.setBlockCount = built.set.length;
     baseEvidence.setSource = built.setSource;
     if (!built.set.length) {
@@ -1427,7 +1659,7 @@ async function analyzeAcceptedShot(client: ComfyAnalysisClient, entry: PreparedS
     const geometry: ShotGeometry = {
       shotIndex: entry.shot.index,
       floor: toContractFloor(floor),
-      camera: toContractCamera(cameraMeasurement),
+      camera: {...toContractCamera(cameraMeasurement), ...(cameraPath && cameraPath.path.length > 1 ? {path: cameraPath.path} : {})},
       persons: [],
       set: built.set,
       setSource: built.setSource,
@@ -1450,7 +1682,7 @@ async function analyzeAcceptedShot(client: ComfyAnalysisClient, entry: PreparedS
       fxPx: fxPx * (entry.personClip.width / accepted.candidate.width),
       fyPx: fyPx * (entry.personClip.height / accepted.candidate.height),
     };
-    persons = await analyzePersons({masks, frameTimesSec: entry.personClip.frameTimesSec, intrinsics, floor});
+    persons = await analyzePersons({masks, frameTimesSec: entry.personClip.frameTimesSec, maskFrames: entry.maskFrames, intrinsics, floor});
   } catch (error) {
     const bundle = await writePersonPassDiagnostics({dir: diagnosticsDir, entry, masks, persons: null, reason: `analysis failed: ${errorText(error)}`}).catch(() => undefined);
     if (bundle) baseEvidence.personPassDiagnostics = bundle;
@@ -1486,10 +1718,16 @@ async function analyzeAcceptedShot(client: ComfyAnalysisClient, entry: PreparedS
     if (bundle) baseEvidence.personPassDiagnostics = bundle;
     return {error: reason, evidence: baseEvidence, runtimeMs};
   }
+  // The camera over the shot: the other keyframes registered onto this one; their people move with them.
+  const cameraPath = await measureCameraPath({entry, anchorFloor: scaledFloor, anchorCamera: scaledCamera, persons: persons.tracks, scale}).catch(() => undefined);
+  if (cameraPath) {
+    baseEvidence.cameraPath = cameraPath.evidence;
+    persons = {...persons, tracks: personsInAnchorFrame(persons.tracks, cameraPath.keyframes)};
+  }
   const geometry: ShotGeometry = {
     shotIndex: entry.shot.index,
     floor: toContractFloor(scaledFloor),
-    camera: toContractCamera(scaledCamera),
+    camera: {...toContractCamera(scaledCamera), ...(cameraPath && cameraPath.path.length > 1 ? {path: cameraPath.path} : {})},
     persons: persons.tracks,
     source: {
       model: `${params.models.geometry} / ${params.models.persons}`,
@@ -1498,7 +1736,7 @@ async function analyzeAcceptedShot(client: ComfyAnalysisClient, entry: PreparedS
     },
   };
   // Set blocks from the same MoGe mesh read for the floor fit: person points removed, voxelized.
-  const builtSet = await buildPointcloudSet({entry, attempt: accepted, floor: scaledFloor, persons: persons.tracks, scale}).catch(() => ({set: [] as SceneBlock[], setSource: "moge-pointcloud" as const}));
+  const builtSet = await buildPointcloudSet({entry, attempt: accepted, floor: scaledFloor, persons: persons.tracks, scale, extraPoints: cameraPath?.keyframes.map((keyframe) => keyframe.worldPoints)}).catch(() => ({set: [] as SceneBlock[], setSource: "moge-pointcloud" as const}));
   geometry.set = builtSet.set;
   geometry.setSource = builtSet.setSource;
   baseEvidence.setBlockCount = builtSet.set.length;

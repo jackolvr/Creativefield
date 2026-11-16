@@ -85,6 +85,10 @@
         {
           "node": "145:141",
           "field": "megapixels"
+        },
+        {
+          "node": "128:136",
+          "field": "resolution.megapixels"
         }
       ]
     },

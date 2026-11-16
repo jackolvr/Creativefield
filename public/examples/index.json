@@ -1,19 +1,30 @@
 {
-  "video": "promo/video-studio.webp",
-  "film": "promo/film-studio.webp",
-  "picture": "picture.webp",
-  "angles": "promo/angles.webp",
-  "new-look": "promo/new-look.webp",
-  "swap-thing": "promo/swap-thing.webp",
-  "sharpen": "promo/sharpen.webp",
-  "copy-moves": "promo/copy-moves.webp",
-  "swap-person": "promo/reshoot.webp",
-  "character": "promo/identity-studio.webp",
-  "talk": "promo/talk.webp",
-  "model3d": "promo/model3d.webp",
+  "video": "tiles/video.webp",
+  "film": "tiles/film.webp",
+  "picture": "tiles/picture.webp",
+  "angles": "tiles/angles.webp",
+  "new-look": {
+    "image": "tiles/new-look.webp",
+    "before": "tiles/new-look-before.webp"
+  },
+  "swap-thing": {
+    "image": "tiles/swap-thing.webp",
+    "before": "tiles/swap-thing-before.webp"
+  },
+  "sharpen": {
+    "image": "tiles/sharpen.webp",
+    "before": "tiles/sharpen-before.webp"
+  },
+  "copy-moves": "tiles/copy-moves.webp",
+  "swap-person": "tiles/swap-person.webp",
+  "character": "tiles/character.webp",
+  "talk": "tiles/talk.webp",
+  "model3d": "tiles/model3d.webp",
   "fix-picture": "promo/photofield.webp",
-  "effect-clips": "promo/effects-lab.webp",
-  "block": "promo/block-shot.webp",
-  "remix": "promo/remix-studio.webp",
-  "ad": "promo/ad-studio.webp"
+  "effect-clips": "tiles/effect-clips.webp",
+  "block": "tiles/block.webp",
+  "remix": "tiles/remix.webp",
+  "ad": "tiles/ad.webp",
+  "filmstudio": "tiles/filmstudio.webp",
+  "keyframes": "tiles/keyframes.webp"
 }

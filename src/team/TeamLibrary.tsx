@@ -1,6 +1,6 @@
 import type {ReactNode} from "react";
 import {lazy,Suspense,useEffect,useState} from "react";
-import {Download,Eye,Image as ImageIcon, Pencil,Trash2} from "lucide-react";
+import {Boxes,Download,Eye,Image as ImageIcon,Palette,Pencil} from "lucide-react";
 import {ASSET_TYPE_DRAG,FrameStrip,Block,LazyVideo,MosaicGrid,MosaicTile,ResultTile,mosaicAccent,Button,ClampText,ConfirmDialog,ContactSheet,Dialog,IconButton,MediaViewer,MediaViewerInfo,Notice,EmptyState,HistoryItem,LinkButton,MediaCard,Meta,PerformanceMirror,ResultGrid,SectionHeader,SegmentedTabs,StatusText,Toolbar,UploadSlot,UploadTile,densityColumnsClass,useDensity,type ContactSheetItem} from "../ds";
 
 import {assetUrl,workspacePath,type Asset,type AssetPage,type Call,type Project,type Run,type User,type Worker,type Workspace} from "./api";
@@ -140,7 +140,7 @@ function ProjectRuns({workspace,project,call,canEdit,authorized,version,user,tit
     return {id:out.id,project_id:run.project_id,name:"",media_type:"video",content_type:out.content_type??"",bytes:String(out.bytes??0),created_at:run.created_at,parent_id:null,metadata:{...(out.metadata??{}),width:out.width,height:out.height,durationSeconds:out.durationSeconds}} as Asset;
   };
   const compareUrl=(card:FeedCard)=>card.compare?{src:assetUrl(workspace.id,card.compare.assetId),name:card.compare.name}:undefined;
-  const runCard=(run:Run)=>runCardFacts(run,outputAsset(run,detail[run.id]??run),titles,feed?.finishSteps);
+  const runCard=(run:Run)=>runCardFacts(detail[run.id]??run,outputAsset(run,detail[run.id]??run),titles,feed?.finishSteps);
   const assetCard=(asset:Asset)=>assetCardFacts(asset,titles,feed?.finishSteps);
   /** The quiet top-left tag on every library file: its mode when the workflow is known, else its kind. */
   /* A finished file is labelled by the workflow that made the clip, with what the Enhance steps did beside it. */
@@ -186,7 +186,7 @@ function ProjectRuns({workspace,project,call,canEdit,authorized,version,user,tit
       {canEdit&&run.state==="succeeded"&&full.invocation&&full.worker_id&&full.invocation.controls.sharpen!==true&&capabilityHasControl(run.capability_id,"sharpen")&&<Button variant="secondary" disabled={canceling===run.id} onClick={()=>void sharpen(full)}>Sharpen this take</Button>}
       <Button variant="ghost" disabled={run.state==="pending"} onClick={()=>void exportGraph(run)}>Export workflow</Button>
     </>} onRecreate={recreate(full)??(run.state==="succeeded"&&run.output_ids.length?()=>void recreateById(run.id):undefined)} inputs={visibleRunInputs(workspace.id,full)} facts={richFacts(run,full,output)} details={<>{full.capability_id==="scail2-character-replace"&&full.invocation&&<RunReferenceInspection workspace={workspace.id} run={full} call={call}/>}{seenOf(full).length>0&&<FrameStrip label="What the model saw" items={seenOf(full)}/>}{run.error?<ClampText text={run.error} lines={2} title="Why this run failed"/>:null}<Meta parts={[`Version ${run.capability_version}`,run.id]}/></>}/>{run.capability_id==="wan22-flf2v-14b"&&run.state==="succeeded"&&run.output_ids[0]&&<RunFrameInspection workspace={workspace.id} runId={run.id} call={call} authorized={authorized} canEdit={canEdit}/>}</div>;};
-  const runTiles=shown.map(run=>runItem(run));
+  const runTiles=shown.map(run=>runItem(run,false,compareUrl(runCard(run))));
   /* The shared feed: every result of this kind in the project, newest first, the finished storyboard films among
      them, packed as a mosaic. The open app's results are marked, and can be shown alone. */
   const feedRuns=feed?shown.filter(run=>!storyboard.hidden.has(run.id)&&(!onlyCurrent||!!feed.current?.includes(run.capability_id))):[];
@@ -236,6 +236,9 @@ export function TeamLibrary({screen,workspace,project,call,canEdit,authorized,ve
   useEffect(()=>{if(!authorized)return;let current=true;void call<Run[]>(workspacePath(workspace.id,`runs?projectId=${project.id}`)).then(list=>{if(current)setMadeBy(list.filter(run=>run.state==="succeeded"));}).catch(()=>{});return()=>{current=false;};},[workspace.id,project.id,call,authorized,version,update]);
   const viewingRunId=viewing?producerRunId(viewing,madeBy):undefined;
   const [viewingRun,setViewingRun]=useState<Run|null>(null);
+  /* Compare in the Library too: an upscale with its original, an image edit with the picture it started from. */
+  const viewingPair=viewing?(assetCardFacts(viewing,{}).compare??(viewingRun?runCardFacts(viewingRun,viewing,{}).compare:undefined)):undefined;
+  const viewingCompare=viewingPair?{src:assetUrl(workspace.id,viewingPair.assetId),name:viewingPair.name}:undefined;
   useEffect(()=>{setViewingRun(null);if(!viewingRunId)return;let current=true;void call<Run>(workspacePath(workspace.id,`runs/${encodeURIComponent(viewingRunId)}`)).then(run=>{if(current)setViewingRun(run);}).catch(()=>{});return()=>{current=false;};},[viewingRunId,workspace.id,call]);
   const kindOf=(file:File)=>file.type.startsWith("video/")?"video" as const:file.type.startsWith("audio/")?"audio" as const:"image" as const;
   async function send(file:File){try{const form=new FormData();form.append("file",file);await call(workspacePath(workspace.id,`assets?projectId=${project.id}`),"POST",form);setPending(old=>{if(old)URL.revokeObjectURL(old.src);return null;});setUpdate(v=>v+1);}catch(e){setPending(old=>old?{...old,state:"failed"}:old);setError((e as Error).message);}}
@@ -259,11 +262,10 @@ export function TeamLibrary({screen,workspace,project,call,canEdit,authorized,ve
         const onUnavailable=()=>setUnavailable(old=>old.has(asset.id)?old:new Set([...old,asset.id]));
         return <MediaCard quiet tag={fileTag(asset)} dragAsset={{id:asset.id,url:src,contentType:asset.content_type}} key={asset.id} onRecreate={canEdit&&(image||video)?withRun(producerRunId(asset,madeBy),recreateById):undefined} media={image?<MediaPreview key={`${src}:${previewRetry}`} src={src} kind="image" lazy onUnavailable={onUnavailable}/>:video?<MediaPreview key={`${src}:${previewRetry}`} src={`${src}#t=0.1`} kind="video" alt={asset.name} onUnavailable={onUnavailable}/>:model?<Suspense fallback={<Meta>Loading model</Meta>}><ModelPreview url={src} standalone/></Suspense>:<audio controls preload="metadata" src={src}/>} viewLabel={`View ${asset.name}`} onView={viewable?()=>{if(model)location.hash=`3d/viewer/${asset.id}`;else setViewing(asset);}:undefined} info={<><span>{asset.name}</span><Meta parts={[asset.content_type,asset.media_type==="mask"?"Validated mask":asset.parent_id&&"New version"]}/></>} actions={<>
           {(viewable||asset.content_type.startsWith("audio/"))&&<IconButton label={`View ${asset.name}`} onClick={()=>{if(model)location.hash=`3d/viewer/${asset.id}`;else setViewing(asset);}}><Eye size={14}/></IconButton>}
-          {model&&canEdit&&<><Button variant="ghost" onClick={()=>{location.hash=`3d/texture/${asset.id}`;}}>Texture</Button><Button variant="ghost" onClick={()=>{location.hash=`3d/mesh/${asset.id}`;}}>Mesh tools</Button></>}{image&&canEdit&&<Button variant="ghost" onClick={()=>{location.hash=`3d/image/auto/${asset.id}`;}}>Create 3D</Button>}{image&&canEdit&&<IconButton label={`Edit ${asset.name}`} onClick={()=>{location.hash=`imageedit/${asset.id}`;}}><Pencil size={14}/></IconButton>}
+          {model&&canEdit&&<><IconButton label="Texture" onClick={()=>{location.hash=`3d/texture/${asset.id}`;}}><Palette size={14}/></IconButton><IconButton label="Mesh tools" onClick={()=>{location.hash=`3d/mesh/${asset.id}`;}}><Boxes size={14}/></IconButton></>}{image&&canEdit&&<IconButton label="Create 3D" onClick={()=>{location.hash=`3d/image/auto/${asset.id}`;}}>3D</IconButton>}{image&&canEdit&&<IconButton label={`Edit ${asset.name}`} onClick={()=>{location.hash=`imageedit/${asset.id}`;}}><Pencil size={14}/></IconButton>}
           {video&&canEdit&&videoEditReady&&<IconButton label={`Edit ${asset.name}`} onClick={()=>onEditVideo(asset)}><Pencil size={14}/></IconButton>}
           <LinkButton variant="secondary" aria-label={`Download ${asset.name}`} href={assetUrl(workspace.id,asset.id,true)}><Download size={14}/></LinkButton>
-          {canEdit&&<IconButton label={`Delete ${asset.name}`} disabled={deletingId===asset.id} onClick={()=>{setDeleteError("");setDeleting(asset);}}><Trash2 size={14}/></IconButton>}
-        </>}/>;
+        </>} onRemove={canEdit&&deletingId!==asset.id?()=>{setDeleteError("");setDeleting(asset);}:undefined} removeLabel={`Delete ${asset.name}`}/>;
       })}
     </div>}
     {cursor&&<Button variant="secondary" disabled={busy} onClick={()=>void more()}>Load more</Button>}
@@ -271,7 +273,7 @@ export function TeamLibrary({screen,workspace,project,call,canEdit,authorized,ve
     <ExampleTiles kind="video" videoSources={LIBRARY_EXAMPLE_VIDEOS} leading={!assets.length&&!pending&&canEdit?<UploadSlot tile label="Add media" hint="Image, video or audio" accept="image/png,image/jpeg,image/webp,video/mp4,video/webm,audio/wav,audio/mpeg" kinds={["image","video","audio"]} onFile={pick}/>:undefined} leadingCount={!assets.length&&!pending&&canEdit?1:0}/>
     <ExampleTiles kind="image" imageSources={SQUAREHEAD_EXAMPLE_IMAGES}/>
   </>}</Block>
-  <MediaViewer open={!!viewing&&!viewing.content_type.startsWith("audio/")} src={viewing?assetUrl(workspace.id,viewing.id):""} name={viewing?.name??""} mediaType={viewing?.content_type.startsWith("video/")?"video":"image"} onClose={()=>setViewing(null)} onNavigate={direction=>setViewing(current=>adjacentItem(viewableAssets,asset=>asset.id===current?.id,direction)??current)} onRecreate={canEdit?withRun(viewingRunId,recreateById):undefined} info={viewingRun?<MediaViewerInfo model={jobQueueTitle(viewingRun.capability_id,titles??{})} inputs={visibleRunInputs(workspace.id,viewingRun)} prompt={String(viewingRun.invocation?.controls?.prompt??"")} facts={[...(viewing?upscaleFactsFor(viewing,titles??{}):[]),...runFacts(viewingRun,{model:jobQueueTitle(viewingRun.capability_id,titles??{})}).slice(1)]} date={new Date(viewingRun.created_at).toLocaleString()}/>:undefined}/>
+  <MediaViewer open={!!viewing&&!viewing.content_type.startsWith("audio/")} src={viewing?assetUrl(workspace.id,viewing.id):""} name={viewing?.name??""} compare={viewingCompare} mediaType={viewing?.content_type.startsWith("video/")?"video":"image"} onClose={()=>setViewing(null)} onNavigate={direction=>setViewing(current=>adjacentItem(viewableAssets,asset=>asset.id===current?.id,direction)??current)} onRecreate={canEdit?withRun(viewingRunId,recreateById):undefined} info={viewingRun?<MediaViewerInfo model={jobQueueTitle(viewingRun.capability_id,titles??{})} inputs={visibleRunInputs(workspace.id,viewingRun)} prompt={String(viewingRun.invocation?.controls?.prompt??"")} facts={[...(viewing?upscaleFactsFor(viewing,titles??{}):[]),...runFacts(viewingRun,{model:jobQueueTitle(viewingRun.capability_id,titles??{})}).slice(1)]} date={new Date(viewingRun.created_at).toLocaleString()}/>:undefined}/>
   <Dialog open={!!viewing&&viewing.content_type.startsWith("audio/")} title={viewing?.name??"Audio preview"} onClose={()=>setViewing(null)} footer={<Button variant="ghost" onClick={()=>setViewing(null)}>Close</Button>}>{viewing&&<Suspense fallback={null}><SpeechAudioPlayer key={viewing.id} workspace={workspace.id} asset={viewing}/></Suspense>}</Dialog>
   <ConfirmDialog open={!!deleting} title="Delete this file?" text={deleting?`${deleting.name} will be removed from your library. If a project still needs the file, its stored copy and references will be retained.`:""} confirmLabel={deleteError?"Retry deletion":"Delete file"} error={deleteError} busy={!!deletingId} onCancel={()=>setDeleting(null)} onConfirm={()=>void removeAsset()}/>
   </>;

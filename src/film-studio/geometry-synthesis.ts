@@ -247,7 +247,7 @@ export function synthesizeMeasuredPlan(input: SynthesisInput): SynthesisResult {
         start: window.startSec,
         end: window.endSec,
         camera: camera
-          ? {target: camera.target, maneuver: camera.maneuver, distance: camera.distance, pitch: camera.pitch, yaw: camera.yaw, lens: camera.lens}
+          ? {target: camera.target, maneuver: camera.maneuver, distance: camera.distance, pitch: camera.pitch, yaw: camera.yaw, lens: camera.lens, ...(camera.path ? {path: camera.path} : {})}
           : heuristicCameraFor(plan, window.shotIndex, characterId),
       };
     });
@@ -366,7 +366,7 @@ export function mergeGeometryBatch(
       end: window?.endSec ?? 0,
       camera: fallbackCamera(slot, characterId),
     };
-    shots[slot] = {...baseShot, camera: {target: camera.target, maneuver: camera.maneuver, distance: camera.distance, pitch: camera.pitch, yaw: camera.yaw, lens: camera.lens}};
+    shots[slot] = {...baseShot, camera: {target: camera.target, maneuver: camera.maneuver, distance: camera.distance, pitch: camera.pitch, yaw: camera.yaw, lens: camera.lens, ...(camera.path ? {path: camera.path} : {})}};
     if (window) {
       shots[slot].start = window.startSec;
       shots[slot].end = window.endSec;

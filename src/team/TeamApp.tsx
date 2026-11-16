@@ -433,10 +433,9 @@ function TeamWorkspace({user,workspace,workspaces,onWorkspace,call,authorized,of
   const explicitWorkflow=resolved?.kind==="workflow"?resolved.manifest:undefined;
   const trimExtension=trim?routeFor("video-edit"):undefined;
   const composerManifest=makeReal??effects??motion?.manifest??(video&&catalogue.find(m=>m.id===video.workflowId));
-  // Prefer the local guided Qwen workflow for FotoField; it follows selected-object
-  // replacement instructions on the verified cat-to-pumpkin case. Other models
-  // remain available through the model selector and readiness determines fallback.
-  const editRoutes=["qwen-image-21-edit","fibo2-edit","flux2-klein-edit","minimax-h3-image-edit"].map(id=>routeFor(id)).filter((route): route is NonNullable<typeof route> => !!route);
+  // FotoField Modify models, best first (user ranking 2026-11-15): MiniMax H3 Image, Fibo, Qwen. The first
+  // one is the default; readiness decides the fallback. FLUX 3 Klein stays for text-to-image, not edits.
+  const editRoutes=["minimax-h3-image-edit","fibo2-edit","qwen-image-21-edit"].map(id=>routeFor(id)).filter((route): route is NonNullable<typeof route> => !!route);
   const editScreen=resolved?.kind==="imageedit"||resolved?.kind==="fotofield"?resolved:undefined;
   const editRoute=editRoutes[0];
   const readyManifests=catalogue.filter(m=>statuses[m.id]?.state==="ready"),readyImages=(studio?catalogue.filter(m=>localReady.has(m.id)):readyManifests).filter(isImageCapability),shownImages=catalogue.filter(m=>m.coverage.local==="implemented"&&isImageCapability(m)),readyEdit=readyManifests.some(isMaskedEdit);
@@ -865,7 +864,7 @@ function TeamWorkspace({user,workspace,workspaces,onWorkspace,call,authorized,of
     {...screenAccess} project={project} authorized={authorized}
     inpaint={inpaintRoute} edit={editRoute} editOptions={editRoutes} segment={routeFor("sam3-image-segment")}
     precision={routeFor("flux2-klein-preserve-edit")} maskedEdit={routeFor("qwen-image-21-masked-edit")}
-    upscale={routeFor("upscale-image-esrgan")} detailUpscale={routeFor("z-image-2k-upscale")} onOpenModels={openModels}
+    upscale={routeFor("upscale-image-esrgan")} detailUpscale={routeFor("fibo2-edit")??routeFor("z-image-2k-upscale")} onOpenModels={openModels}
     onExitSubjectRelight={()=>{location.hash=`imageedit/${editScreen.kind==="fotofield"?"layers/":""}${editScreen.assetId??""}/modify`;}}/>,"workspace"));
   const renderImage=inProject(project=>page(manifest&&isImageCapability(manifest)?<ImageStudio
     sharedFeed={<TeamRuns {...studioAccess} project={project} version={version}

@@ -32,7 +32,15 @@ import type {ShotStatus} from "./shot-status";
 // Version 9 (2026-11-15, Phase 3 of LATER-2240): one person split by SAM into masks (shirt and
 // trousers) is measured as one outline, and a shot with an untrusted floor takes its scale from
 // the people. Older analyses had two small figures and a scene about three times too small.
-export const ANALYSIS_CONTRACT_VERSION = 9;
+// Version 10 (2026-11-15): SAM3 runs once per keyframe, so every mask belongs to its frame; the video
+// mode returned an extra tracked mask that the frame guess turned into a phantom second person.
+// Version 11 (2026-11-15): with three or more keyframes, a person seen in only one of them is dropped
+// when another person is seen in all of them (a ghost double in a blended source frame).
+// Version 13 (2026-11-15,): DA3-Base multiview on the keyframes gives the camera path over the
+// shot (MoGe anchor gives up and metric scale); people and set points move into the anchor frame.
+// Version 16 (2026-11-15,): the set is fitted as oriented boxes, slabs and upright cylinders per
+// connected part of the stage points instead of voxel stairs.
+export const ANALYSIS_CONTRACT_VERSION = 16;
 
 /** Resolution levels and keyframe policy; a change invalidates the cache. */
 export type PyramidParams = {
@@ -157,7 +165,17 @@ export type GeometryCamera = {
   fovDeg: number;
   lensMm: number;
   confidence: number;
+  /**
+   * The camera over the shot: one pose per keyframe whose camera DA3 multiview recovered,
+   * in time order, the anchor itself included. Stage
+   * coordinates of the anchor keyframe (x left, y up, z forward, the anchor camera at
+   * (0, heightM, 0) looking down +z). Absent or a single pose: the camera stands still.
+   */
+  path?: CameraPathPose[];
 };
+
+/** One measured camera pose on the shot's camera path. yawDeg > 0 turns towards stage +x (left). */
+export type CameraPathPose = {timeSec: number; xM: number; zM: number; heightM: number; yawDeg: number; pitchDeg: number};
 
 /** Full-frame gate width used by the evaluator's optics. */
 export const SENSOR_WIDTH_MM = 36;
@@ -244,6 +262,12 @@ export type SceneBlock = {
   sizeZ: number;
   /** wall = backdrop/side, object = furniture/tree/car, ground = low ground clutter. */
   kind?: "wall" | "background" | "object" | "ground";
+  /**
+   *: "cylinder" is an upright cylinder of diameter sizeX (= sizeZ); absent or "box" is a
+   * box. yawDeg turns it about the vertical (three.js rotation.y, degrees); absent = axis-aligned.
+   */
+  shape?: "box" | "cylinder";
+  yawDeg?: number;
 };
 
 export type ShotGeometry = {

@@ -1,10 +1,10 @@
 ﻿import type {ImageEditEntry} from "../../team/navigation";
-import {dragLayerTransform,applyLayerTransform,transformCorner,type TransformHandle,type TransformPoint} from "./free-transform";
+import {alphaBounds,dragLayerTransform,applyLayerTransform,transformCorner,trimLayerToContent,type TransformHandle,type TransformPoint} from "./free-transform";
 import "../../ds/modify-controls.css";
 import {cloneLayerMask,effectiveLayerMaskKey} from "./layer-mask";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignStartHorizontal, AlignStartVertical, ArrowUpRight, Brush, Paintbrush, Crop, Eraser, FlipHorizontal2, Hand, ImagePlus, Lasso, Maximize2, Move, Pipette, Pencil, Plus, Redo2, Square, Folder, FolderOpen, Contrast, Grid3x3, Lock, SlidersHorizontal, ScanSearch, Link, SquarePlus, Menu as MenuIcon, SquareDashed, Trash2, Undo2, WandSparkles, ZoomIn , X} from "lucide-react";
-import { MediaPickerDialog, DropTarget,
+import { MediaPickerDialog, DropTarget, chooseDeviceFiles,
   AnnotationEditor, ActionBar, CommandBar, ContextMenu, Working, clipboardFile, DockStack, DockPanel, DockTabs, FloatingPanel, FxIcon, InlineSelect, InlineSlider, LabeledRow, MenuButton, Block, Button, ColorPicker, ForegroundBackground, Canvas, Checkbox, InfoButton, ShortcutSheet, type ShortcutGroup, OptionsBar, StatusBar, TextField, Dialog, EmptyState, IconButton, LayerList, LayerRow, Meta, Page, PanelSection, PromptField,
   ContactSheet,
   Notice, Badge, CropHandles, TransformHandles, ParamButton, Row, SegmentedTabs, SliderField, Split, Stage, Swatches, Thumb, ThumbGrid, ToolRail, Toolbar, UploadSlot, useToast, Progress,
@@ -24,9 +24,9 @@ import {
 } from "./doc";
 import { blankCanvas, cloneBitmap, getBitmap, loadBitmap, setBitmap, sizeOf } from "./bitmaps";
 import { filterChannels, layerCanvas, renderDoc, type Channels } from "./render";
-import { AI_BUSY, AI_LABELS, aiInstruction, selectionInstruction, padRect, requestsObjectRemoval, requestsObjectResize, resolveEditMode, resolveEditScope, type EditScope, type EditIntent, type AiMode, type Rect } from "./ai";
+import { AI_BUSY, AI_LABELS, aiInstruction, aiLayerName, selectionInstruction, padRect, requestsObjectRemoval, requestsObjectResize, resolveEditMode, resolveEditScope, type EditScope, type EditIntent, type AiMode, type Rect } from "./ai";
 import {annotationCropInstruction,annotationGuide,annotationInstruction,annotationsInCrop,annotationStorageKey,imageAnnotationsSchema,type ImageAnnotation} from "../annotations";
-import {canAttachSelectionGuide,editInstructionFor,mapAnnotationReferenceMentions,modifyReferenceBindings,selectionGuideFor} from "./modify-references";
+import {editInstructionFor,mapAnnotationReferenceMentions,modifyReferenceBindings,selectionGuideFor} from "./modify-references";
 import {insertReferenceMention,usesH3Prompt} from "../../team/prompt-reference";
 import {plainProblem} from "../../team/problems";
 import {readSubjectRelight,subjectRelightKey} from "../subject-relight";
@@ -37,9 +37,9 @@ import {createBrushStroke,compositeBrushStroke,brushEdgeBlur,paintSuperSoftRound
 import {useDocuments} from "./use-documents";
 import {RecentDocuments} from "./RecentDocuments";
 import {mergeLayerIds,smartObjectIds,createSmartObject,applySmartContents,type MergeMode} from "./layer-actions";
-import {drawMaskOutline,OUTLINE_FRAME_MS,OUTLINE_PHASES} from "./mask-outline";
+import {drawSelectionShimmer,maskOutlinePath,OUTLINE_FRAME_MS,OUTLINE_PHASES} from "./mask-outline";
 import {cropViewport,exposedBorder,hasExposedBorder,normalizeViewport,scaleViewport} from "./crop-extend";
-import {hitObject,imageSignature,type ObjectRegion} from "./region-tools";
+import {QUICK_SELECT_FIRST,quickSelectPlan,sameRegion,hitObject,imageSignature,type ObjectRegion} from "./region-tools";
 import { cropHandleAt, dragCrop, fullCrop, isFullCrop, type CropHandle, type CropRect } from "./crop";
 import { ADJUSTMENTS, addAdjustLayer, aiCropRect, type AdjustKind, groupLayers, groupSelectionState, groupAncestors, isGroupDescendant, moveWithLinks, reorderLayer, isVisible, ratioOf, resetAdjustment, toggleGroup, ungroupGroup, ungroupLayer, type Locks } from "./doc";
 import { groupMergeSource } from "./layer-actions";
@@ -78,9 +78,14 @@ const BRUSH_STYLES: Array<{ value: BrushStyle; label: string }> = [
 ];
 const SELECT_TOOLS: Tool[] = ["rect", "lasso", "wand", "subject"];
 /** Native controls and overlays own their keyboard input, including range arrows and Space. */
-function ownsKeyboard(target: EventTarget | null): boolean {
+/** Who gets this key: text fields, sliders and open dialogs or menus keep every key; a focused button, link,
+ * radio or row keeps only the keys that operate it (Space, Enter, arrows, Tab), so tool letters and Ctrl shortcuts
+ * still reach the editor after a click on a layer, a button or a menu (Photoshop). Without a key: everything. */
+function ownsKeyboard(target: EventTarget | null, key?: string): boolean {
   const element = target instanceof HTMLElement ? target : null;
-  return !!(element?.isContentEditable || element?.closest('input,textarea,select,button,a[href],[role="slider"],[role="dialog"],[role="menu"],[data-comfy-menu]') || document.querySelector('[role="dialog"][aria-modal="true"],[data-comfy-menu]'));
+  if (element?.isContentEditable || element?.closest('input,textarea,select,[role="slider"],[role="dialog"],[role="menu"],[data-comfy-menu]') || document.querySelector('[role="dialog"][aria-modal="true"],[data-comfy-menu]')) return true;
+  if (!element?.closest('button,a[href],[role="radio"],[role="tab"],[role="option"],[tabindex]:not(canvas)')) return false;
+  return key === undefined || key === " " || key === "Enter" || key === "Tab" || key.startsWith("Arrow");
 }
 const COLORS = ["#ffffff", "#202020", "#2fa8ff", "#f5c451", "#7ddc9b", "#f08a5d"];
 /** A document as the crop geometry sees it. */
@@ -103,13 +108,13 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
     { keys: ["Ctrl+D"], label: "Deselect" }, { keys: ["Ctrl+Shift+D"], label: "Reselect" }, { keys: ["Ctrl+Shift+I"], label: "Invert" },
   ] },
   { title: "Layers", items: [
-    { keys: ["Ctrl+J"], label: "Layer via copy" }, { keys: ["Ctrl+Shift+J"], label: "Layer via cut" }, { keys: ["Ctrl+G"], label: "Group layers" }, { keys: ["Ctrl+E"], label: "Merge down" },
-    { keys: ["Ctrl+Shift+E"], label: "Merge visible" }, { keys: ["Ctrl+["], label: "Move down" }, { keys: ["Ctrl+]"], label: "Move up" },
+    { keys: ["Ctrl+J"], label: "Layer via copy" }, { keys: ["Ctrl+Shift+J"], label: "Layer via cut" }, { keys: ["Ctrl+G"], label: "Group layers" }, { keys: ["Ctrl+Shift+G"], label: "Ungroup" }, { keys: ["Ctrl+E"], label: "Merge down" },
+    { keys: ["Ctrl+Shift+E"], label: "Merge visible" }, { keys: ["Ctrl+["], label: "Move down" }, { keys: ["Ctrl+]"], label: "Move up" }, { keys: ["Alt+[ / ]"], label: "Select layer below / above" },
     { keys: ["Ctrl+click"], label: "Pick layer" },
   ] },
   { title: "Edit", items: [
     { keys: ["Delete"], label: "Erase selection" }, { keys: ["Alt+Backspace"], label: "Fill" }, { keys: ["Ctrl+Backspace"], label: "Fill background" },
-    { keys: ["Arrows"], label: "Nudge (Shift ×10)" }, { keys: ["Ctrl+C"], label: "Copy" }, { keys: ["Ctrl+V"], label: "Paste as layer" },
+    { keys: ["Arrows"], label: "Nudge (Shift ×10)" }, { keys: ["Ctrl+C"], label: "Copy layer" }, { keys: ["Ctrl+Shift+C"], label: "Copy merged" }, { keys: ["Ctrl+V"], label: "Paste in place" },
     { keys: ["Ctrl+Z"], label: "Undo" }, { keys: ["Ctrl+Shift+Z"], label: "Redo" },
   ] },
   { title: "View & file", items: [
@@ -140,6 +145,7 @@ const shortEditModelName=(title:string)=>title
   .replace(/^MiniMax H3 Image$/i,"MiniMax H3")
   .replace(/\s+with references$/i,"")
   .replace(/\s+guided edit$/i,"");
+
 
 
 export function ImageEditor({ workspace, project, userId, call, canEdit, authorized, inpaint, edit: defaultEdit, editOptions = [], segment, precision, maskedEdit, upscale, detailUpscale, openAssetId, openEntry, freeInput = false, onOpenModels, onExitSubjectRelight }: { workspace: Workspace; project: Project; userId:string; call: Call; canEdit: boolean; authorized: boolean; inpaint?: InpaintRoute; edit?: InpaintRoute; editOptions?: InpaintRoute[]; /** SAM 3.1: select parts by name. */ segment?: InpaintRoute; precision?: InpaintRoute; maskedEdit?: InpaintRoute; upscale?: InpaintRoute; /** A prompt-capable detail upscaler; falls back to the plain upscaler. */ detailUpscale?: InpaintRoute; /** An image from the Library to open right away (from Create Image). */ openAssetId?: string; openEntry?: ImageEditEntry; freeInput?: boolean; onOpenModels?:()=>void; onExitSubjectRelight?:()=>void }) {
@@ -238,6 +244,7 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
   function chooseReference(asset:Asset,slot=referenceSlot){clearCharacterPlacement();setCharacterSwap(false);setAiCharacter(null);if(slot===0)setAiReference(asset);else setExtraReferences(previous=>previous.map((value,index)=>index===slot-1?asset:value));setPreserveOriginal(false);setReferencePicker(false);}
   const [preserveMode,setPreserveMode]=useState("replace");
   const [precisionContext,setPrecisionContext]=useState(32),[precisionFeather,setPrecisionFeather]=useState(.5);
+  const layerAnchor=useRef<string|null>(null);
   const [precisionSettings,setPrecisionSettings]=useState(false);
   const [precisionRun,setPrecisionRun]=useState<Run|null>(null);
   const [precisionResult,setPrecisionResult]=useState<PrecisionResult|null>(null);
@@ -268,7 +275,9 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
   const [collapsedGroups,setCollapsedGroups]=useState<Set<string>>(()=>new Set());
   const strokeMask = useRef(false);
   const strokeErase=useRef(false),outlineRevision=useRef(0),outlinePhase=useRef(0);
-  const [hoverObjects,setHoverObjects]=useState(false),[objectsReady,setObjectsReady]=useState(0);
+  /* Quick select analysis: idle (null) -> analysing (n of N concepts) -> ready | failed, per picture signature. */
+  const [objectScan,setObjectScan]=useState<{signature:string;status:"analysing"|"ready"|"failed";done:number;total:number}|null>(null);
+  const scanToken=useRef(0);
   const objectRegions=useRef<{signature:string;regions:ObjectRegion[]}|null>(null),hoveredObject=useRef(-1);
   const ringRef = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<null | { x: number; y: number; items: Array<{ id: string; label: string; onSelect: () => void; danger?: boolean }> }>(null);
@@ -357,8 +366,10 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
   const documents=useDocuments({workspaceId:workspace.id,projectId:project.id,call,doc:transforming?(transformSession.current?.history.present??doc):doc,enabled:authorized&&canEdit,getRoot:rootDocument,
     onLoad:restored=>{setAnnotations([]);const previous=smartSessions.current.length?rootDocument():null;smartSessions.current=[];setSmartDepth(0);setHist(h=>h?commit(previous?startHistory(previous):h,restored):startHistory(restored));setMulti([]);setMaskEdit(null);setQuickMask(false);setTool("move");thumbs.current.clear();setDocumentPicker(false);fit();},
   });
-  const documentDialog=<Dialog open={documentPicker} title="Open document" onClose={()=>setDocumentPicker(false)} footer={<Button variant="secondary" onClick={()=>setDocumentPicker(false)}>Close</Button>}>
-    {documents.records.length?documents.records.map(record=><Row key={record.id} label={`${record.kind==="recovery"?"Draft · ":""}${record.name}`} display={new Date(record.updated_at).toLocaleString()} disabled={documents.busy} onClick={()=>void documents.open(record.id).catch(()=>{})}/>):<Meta>No saved documents or recovery drafts in this project.</Meta>}
+  const documentDialog=<Dialog open={documentPicker} title="Recent documents" onClose={()=>setDocumentPicker(false)} footer={<Button variant="secondary" onClick={()=>setDocumentPicker(false)}>Close</Button>}>
+    {documents.records.length
+      ? <RecentDocuments records={documents.records} workspaceId={workspace.id} projectId={project.id} call={call} busy={documents.busy} onOpen={id=>void documents.open(id).catch(()=>{})}/>
+      : <Meta>No saved documents or recovery drafts in this project.</Meta>}
   </Dialog>;
   /* A document problem is said once, wherever the editor shows it, with the step that retries it (rule 36). */
   const documentProblem=documents.error?plainProblem(documents.error):null;
@@ -421,11 +432,11 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
         if(!cached||cached.key!==d.selection||cached.revision!==outlineRevision.current||cached.color!==color){const overlay=tinted(d.selection,color);cached=overlay?{key:d.selection,revision:outlineRevision.current,color,canvas:overlay}:null;quickMaskPreview.current=cached;}
         if(cached){ctx.save();ctx.globalAlpha=.24;ctx.drawImage(cached.canvas,0,0,d.width,d.height);ctx.restore();}
       }
-      if(mask&&outlineCtx)drawMaskOutline(outlineCtx,mask,outlineRevision.current,d.width/Math.max(1,canvas.getBoundingClientRect().width),style.getPropertyValue("--text-primary").trim(),style.getPropertyValue("--surface-page").trim(),outlinePhase.current);
+      if(mask&&outlineCtx)drawSelectionShimmer(outlineCtx,mask,outlineRevision.current,d.width/Math.max(1,canvas.getBoundingClientRect().width),style.getPropertyValue("--accent").trim()||"#2fa8ff");
     }
-    if(tool==="subject"&&hoverObjects&&objectRegions.current?.signature===imageSignature(d)&&hoveredObject.current>=0){
+    if(tool==="subject"&&objectRegions.current?.signature===imageSignature(d)&&hoveredObject.current>=0){
       const region=objectRegions.current.regions[hoveredObject.current],style=getComputedStyle(canvas);
-      if(region&&outlineCtx)drawMaskOutline(outlineCtx,region.canvas,0,d.width/Math.max(1,canvas.getBoundingClientRect().width),style.getPropertyValue("--text-primary").trim(),style.getPropertyValue("--surface-page").trim());
+      if(region&&outlineCtx)drawSelectionShimmer(outlineCtx,region.canvas,0,d.width/Math.max(1,canvas.getBoundingClientRect().width),style.getPropertyValue("--accent").trim()||"#2fa8ff",.6);
     }
     if (tool === "crop") {
       const box = cropBox.current ?? fullCrop(dims(d));
@@ -470,7 +481,7 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
       ctx.stroke();
       ctx.restore();
     }
-  }, [tool,hoverObjects,quickMask]);
+  }, [tool,quickMask]);
   useEffect(() => {
     if (doc) paint(doc);
   });
@@ -522,7 +533,7 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
     return () => stage.removeEventListener("wheel", onWheel);
   }, [applyView, hasDoc]);
   useEffect(() => {
-    const down = (e: KeyboardEvent) => { if (e.defaultPrevented || e.isComposing || ownsKeyboard(e.target)) return; if (e.key === "Alt") { altDown.current = true; setAltHeld(true); } if (e.code === "Space") { spaceDown.current = true; e.preventDefault(); } };
+    const down = (e: KeyboardEvent) => { if (e.defaultPrevented || e.isComposing || ownsKeyboard(e.target, e.key)) return; if (e.key === "Alt") { altDown.current = true; setAltHeld(true); } if (e.code === "Space") { spaceDown.current = true; e.preventDefault(); } };
     const up = (e: KeyboardEvent) => {
       if (e.code === "Space") spaceDown.current = false;
       if (e.key === "Alt") { altDown.current = false; setAltHeld(false); }
@@ -828,9 +839,11 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
       const resizeSelection=!!sel&&mode==="modify"&&!annotated&&requestsObjectResize(aiPrompt);
       const region:Rect=annotated?padRect(matte!.bounds,snapshot.width,snapshot.height,0.35):integration?.region??(bounds?padRect(bounds,snapshot.width,snapshot.height,mode==="fill"||resizeSelection?0.35:0.15):{x:0,y:0,w:snapshot.width,h:snapshot.height});
       if(resizeSelection)matte=resizePatchMatte(snapshot.width,snapshot.height,region);
-      // H3 repaints the whole crop: blend it over a soft ramp beyond the selection instead of a hard cut.
-      if(matte&&sel&&!annotated&&!resizeSelection&&usesH3Prompt(runEdit.manifest)){
-        const soft=featheredMaskOutside(snapshot,sel,Math.max(8,Math.round(Math.min(region.w,region.h)*.06)));
+      // Every edit model's result fades in across the selection edge, inside and outside, so a slight tone
+      // shift of the model never shows as a hard line. The fade (about twice the radius) stays inside the
+      // crop's padding, so the crop's own border never shows either.
+      if(matte&&sel&&bounds&&!annotated&&!resizeSelection){
+        const soft=featheredMask(snapshot,sel,Math.max(6,Math.round(Math.min(bounds.w,bounds.h)*.06)));
         if(soft)matte=featheredModifyMatte(soft,region);
       }
       const flat = blankCanvas(snapshot.width, snapshot.height);
@@ -846,16 +859,10 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
       else if(integration){const target=blankCanvas(region.w,region.h);target.getContext("2d")!.drawImage(integration.target,region.x,region.y,region.w,region.h,0,0,region.w,region.h);reference=await uploadPng(target,"image",`harmonize-element-${Date.now()}.png`);}
       const explicitReferences=[aiReference,...extraReferences];
       const ports=runEdit.manifest.inputs.map(input=>input.id);
-      // MiniMax H3 Image reproduces every picture it gets, the blue overlay included (seen 2026-11-11); its
-      // result is blended back inside the selection anyway, so it gets the crop without a guide.
-      const availableGuide=!!sel&&!annotated&&!aiCharacter&&!usesH3Prompt(runEdit.manifest)&&canAttachSelectionGuide(ports,explicitReferences.map(asset=>asset?.id??null));
-      let selectionGuide:Asset|null=null;
-      if(availableGuide){
-        const mask=tinted(sel!,"#259eff");if(!mask)throw new Error("The selected mask is unavailable.");
-        const guide=blankCanvas(region.w,region.h),gc=guide.getContext("2d")!;
-        gc.drawImage(crop,0,0);gc.globalAlpha=.38;gc.drawImage(mask,region.x,region.y,region.w,region.h,0,0,region.w,region.h);
-        selectionGuide=await uploadPng(guide,"image",`selection-guide-${Date.now()}.png`);
-      }
+      // No model gets a picture with the blue selection overlay: Qwen and MiniMax reproduce it as a blue tint
+      // (seen 2026-11-11 and 2026-11-15). The masked edit gets the real mask, and every result is cut to the
+      // selection with a soft edge anyway.
+      const selectionGuide=null as Asset|null;
       const mentionStyle=usesH3Prompt(runEdit.manifest)?"h3" as const:"plain" as const;
       const mapped=modifyReferenceBindings(source.id,annotated?(singleBox?undefined:reference.id):selectionGuide?.id,explicitReferences.map(asset=>asset?.id??null),ports,aiPrompt,mentionStyle);
       const inputs:Record<string,string>=mapped.inputs;
@@ -889,11 +896,24 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
       // Modify must follow the user's actual instruction, including replacement details.
       // Fibo's optional prompt enhancer can rewrite those details before the edit model sees them.
       const directPrompt=(mode==="modify"||annotated||explicitReferences.some(Boolean))&&edit.manifest.controls.some(control=>control.id==="improve_prompt");
-      // An annotation crop is small: ask for the model's smallest size of at least four times its pixels, not its
-      // large default (MiniMax H3 Image defaults to 12 MP and took 400 s for a 0.1 MP crop).
-      const sizeOptions=annotated?(runEdit.manifest.controls.find(control=>control.id==="megapixels")?.options??[]).map(Number).filter(Number.isFinite).sort((a,b)=>a-b):[];
-      const cropMegapixels=sizeOptions.length?sizeOptions.find(option=>option>=Math.max(1,region.w*region.h*4/1e6))??sizeOptions[sizeOptions.length-1]:undefined;
-      const done = await runAndWait(runEdit, inputs, { prompt: editInstructionFor(mentionStyle,instruction),...(directPrompt?{improve_prompt:false}:{}),...(cropMegapixels!==undefined?{megapixels:cropMegapixels}:{}) },undefined,elementInputs);
+      // The model works at the size the picture needs, not its fixed default: FLUX 3 Klein, Qwen and Fibo default
+      // to 1 MP (a 2048x1157 picture came back soft), MiniMax H3 Image to 12 MP (400 s for a 0.1 MP crop). The
+      // smallest option that covers the section; an annotation crop asks for four times its pixels.
+      const sizeOptions=(runEdit.manifest.controls.find(control=>control.id==="megapixels")?.options??[]).map(Number).filter(Number.isFinite).sort((a,b)=>a-b);
+      // MiniMax H3 Image renders at least 8 MP in Modify (user, 2026-11-15): its detail at 4 MP stays behind.
+      // Fibo at 2 MP (and 8 steps, its manifest default) keeps the original's saturation and gains detail; Qwen
+      // stays at 1 MP, where it is sharpest (face test 2026-11-15, rated by the user).
+      const fiboCrop=runEdit.manifest.id==="fibo2-edit";
+      const minMegapixels=usesH3Prompt(runEdit.manifest)?8:fiboCrop?2:1;
+      const cropMegapixels=sizeOptions.length?sizeOptions.find(option=>option>=Math.max(minMegapixels,region.w*region.h*(annotated?4:1)/1e6))??sizeOptions[sizeOptions.length-1]:undefined;
+      // Fibo and Qwen come out a little waxy with plain euler; an ancestral sampler adds fresh noise at every
+      // step inside the model, which gives natural skin and surface texture without grain on the result.
+      const sampler=runEdit.manifest.controls.find(control=>control.id==="sampler")?.options?.includes("euler_ancestral")?{sampler:"euler_ancestral"}:{};
+      // Qwen reads a small crop at its own size and copies its blur, a damaged eye included; enlarged to at
+      // least 1024 px it redraws the detail cleanly (face test 2026-11-15). Larger crops keep their size.
+      const referenceControl=runEdit.manifest.controls.find(control=>control.id==="reference_resolution");
+      const referenceSize=referenceControl?{reference_resolution:Math.min(referenceControl.max??2048,Math.max(1024,Math.ceil(Math.sqrt(region.w*region.h)/32)*32))}:{};
+      const done = await runAndWait(runEdit, inputs, { prompt: editInstructionFor(mentionStyle,instruction),...(directPrompt?{improve_prompt:false}:{}),...(cropMegapixels!==undefined?{megapixels:cropMegapixels}:{}),...sampler,...referenceSize },undefined,elementInputs);
       if (!done || !alive.current) return;
       const out = done.output_ids[0];
       // A run that was cancelled (Jobs menu) or failed is said in the panel, not only in a passing toast.
@@ -903,8 +923,7 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
       // Qwen scales each source dimension to its latent grid without cropping; MiniMax H3 Image keeps
       // Picture 1's proportions by default. Map the complete generated frame back to the source crop.
       const sourceAligned=edit.manifest.id==="qwen-image-21-edit"||usesH3Prompt(runEdit.manifest);
-      const fiboCrop=runEdit.manifest.id==="fibo2-edit";
-      const result = matte?cutoutModifiedResult(bitmap,region,matte,sourceAligned,fiboCrop):blankCanvas(snapshot.width, snapshot.height);
+      const result = matte?cutoutModifiedResult(bitmap,region,matte,sourceAligned,fiboCrop,sel&&!annotated?flat:undefined):blankCanvas(snapshot.width, snapshot.height);
       const rc = result.getContext("2d")!;
       if(!matte)drawModifiedResult(rc,bitmap,region,sourceAligned,fiboCrop);
       if (sel&&!matte) {
@@ -914,12 +933,14 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
           rc.drawImage(soft, 0, 0);
         }
       }
+      // The layer says what was asked and by which model; annotation runs list their box instructions.
+      const layerName=aiLayerName(shortEditModelName(edit.manifest.title),aiPrompt.trim()||(annotated?boxes.map(box=>box.instruction).join("; "):""),AI_LABELS[mode]);
       const key = `bmp:ai${Date.now().toString(36)}`;
       setBitmap(key, result);
       if(!liveDoc.current||imageSignature(liveDoc.current)!==imageSignature(snapshot))throw new Error("The image changed. The generated result remains in Library; this canvas was kept unchanged.");
       setHist((h0) => {
         if (!h0||imageSignature(h0.present)!==imageSignature(snapshot)) return h0;
-        return commit(h0,addAiResultLayer(h0.present,key,AI_LABELS[mode],matte?.bounds));
+        return commit(h0,addAiResultLayer(h0.present,key,layerName,matte?.bounds));
       });
       thumbs.current.clear();
       refreshBitmaps();
@@ -978,7 +999,9 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
     if(!visible){toast("Show part of the picture before quick upscaling.");return;}
     const documentPerScreen=doc.width/Math.max(1,canvasRect.width);
     // Detailed: as few runs as the redraw size allows (DETAIL_TILE_PX); Fast keeps small, quick tiles.
-    const screenPx=mode==="detail"?Math.max(96,Math.round(DETAIL_TILE_PX/documentPerScreen)):Math.max(240,Math.min(420,Math.round(Math.min(stageRect.width,stageRect.height)*0.36)));
+    // A picture whose 2x result fits the model's working size (about 1 MP in, 4 MP out) goes in one run: no seams.
+    const wholeAtOnce=mode==="detail"&&visible.w*visible.h<=DETAIL_TILE_PX*DETAIL_TILE_PX;
+    const screenPx=wholeAtOnce?Math.ceil(Math.max(visible.w,visible.h)/documentPerScreen)+2:mode==="detail"?Math.max(96,Math.round(DETAIL_TILE_PX/documentPerScreen)):Math.max(240,Math.min(420,Math.round(Math.min(stageRect.width,stageRect.height)*0.36)));
     const tiles=planQuickTiles(visible,doc.width,doc.height,{screenPx,documentPerScreen,maxTiles:24});
     if(!tiles.length)return;
     /* A zoomed-in region gets the model's full 4x output; a full or large canvas stays at 2x. */
@@ -988,9 +1011,10 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
     const factor:2|4=mode==="detail"?2:!big&&maxFactor>=4&&visible.w*visible.h<doc.width*doc.height*.75?4:2;
     const scaled=scaleViewport(snapshot,factor*100,8192);
     const flat=blankCanvas(doc.width,doc.height);renderDoc(flat.getContext("2d")!,{...snapshot,selection:null},{background:true});
-    /* The detailed model gets the whole picture as context and only the tile as its working image. */
+    /* A detailed model that needs a second picture gets the whole frame as context; one that only may take it
+       (Fibo) does not: given the whole dragon, it drew the whole dragon instead of the tile (tile test 2026-11-16). */
     let contextId:string|undefined;
-    if(mode==="detail"&&engine.manifest.inputs.some(input=>input.id==="reference_image")){
+    if(mode==="detail"&&engine.manifest.inputs.some(input=>input.id==="reference_image"&&input.required)){
       const context=await uploadPng(flat,"image",`quick-upscale-context-${Date.now()}.png`,undefined,true);
       contextId=context.id;
     }
@@ -1023,7 +1047,13 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
         /* Speed: the smallest size that still covers the tile at its target resolution (usually 1 MP, not 2),
            and fewer steps, since the model refines a picture it is given instead of inventing one. */
         if(hasMegapixels){const options=(engine.manifest.controls.find(control=>control.id==="megapixels")?.options??[]).map(Number).filter(Number.isFinite).sort((x,y)=>x-y);const need=tile.source.w*tile.source.h*factor*factor/1e6;detailControls.megapixels=options.find(option=>option>=need)??options[options.length-1]??2;}
-        if(engine!==upscale&&engine.manifest.controls.some(control=>control.id==="steps"))detailControls.steps=16;
+        /* A refinement needs half the steps of a fresh picture (Fibo: 4 of 8, 18 s per 1024 tile instead of 35 s, with
+           more detail and closer to the original than Z-Image); the ancestral sampler keeps the texture natural and the
+           prompt goes in as written, not rewritten by the model's prompt helper. */
+        const steps=engine.manifest.controls.find(control=>control.id==="steps");
+        if(engine!==upscale&&steps)detailControls.steps=Math.max(steps.min??1,Math.round(Number(steps.default??16)/2));
+        if(engine.manifest.controls.find(control=>control.id==="sampler")?.options?.includes("euler_ancestral"))detailControls.sampler="euler_ancestral";
+        if(engine.manifest.controls.some(control=>control.id==="improve_prompt"))detailControls.improve_prompt=false;
         if(engine.manifest.id==="minimax-h3-image-edit")detailControls.aspect_ratio="Same as Picture 1";
         if(engine===upscale)detailControls.scale_by=factor===4?1:0.5;
         const done=await runAndWait(engine,{source_image:asset.id,...(contextId?{reference_image:contextId}:{})},detailControls,run=>{quickRun.current=run.id;});
@@ -1070,7 +1100,7 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
   /* Marked regions (annotations) on the picture: numbered dashed frames over the canvas, following zoom and pan.
      Drawn on the quick-upscale overlay while no upscale runs; never part of the image. */
   useEffect(()=>{
-    if(!annotations.length||quickProgress||subjectRelight)return;
+    if(!annotations.length||quickProgress||subjectRelight||tool==="subject")return;
     let frame=0;
     const draw=()=>{
       const stage=stageRef.current,canvas=canvasRef.current,overlay=quickOverlayRef.current;
@@ -1093,7 +1123,53 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
     };
     frame=requestAnimationFrame(draw);
     return()=>{cancelAnimationFrame(frame);const overlay=quickOverlayRef.current;if(overlay)overlay.getContext("2d")?.clearRect(0,0,overlay.width,overlay.height);};
-  },[annotations,quickProgress,subjectRelight,doc]);
+  },[annotations,quickProgress,subjectRelight,doc,tool]);
+
+  /* Quick select starts its analysis by itself: when the tool is chosen and whenever the picture changes. */
+  const pictureSignature=doc?imageSignature(doc):"";
+  useEffect(()=>{
+    if(tool!=="subject"){if(objectScan?.status==="analysing"){scanToken.current++;setObjectScan(null);}return;}
+    if(!pictureSignature||!segment||!canEdit||!authorized||aiBusy)return;
+    if(objectScan?.signature===pictureSignature)return;
+    void analyseObjects();
+  // analyseObjects reads the current doc; the signature stands for it here.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[tool,pictureSignature,segment,canEdit,authorized,aiBusy]);
+
+  /* Quick select on the picture: while analysing a light band sweeps the whole image and the outlines found so
+     far march; when ready every region keeps a quiet outline. Drawn on the overlay, never into the image. */
+  useEffect(()=>{
+    if(tool!=="subject"||!objectScan||quickProgress)return;
+    let frame=0;
+    const draw=(now:number)=>{
+      const stage=stageRef.current,canvas=canvasRef.current,overlay=quickOverlayRef.current;
+      if(stage&&canvas&&overlay&&doc){
+        const stageRect=stage.getBoundingClientRect(),canvasRect=canvas.getBoundingClientRect(),dpr=Math.min(2,window.devicePixelRatio||1);
+        const width=Math.max(1,Math.round(stageRect.width*dpr)),height=Math.max(1,Math.round(stageRect.height*dpr));
+        if(overlay.width!==width||overlay.height!==height){overlay.width=width;overlay.height=height;}
+        const ctx=overlay.getContext("2d")!;ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,stageRect.width,stageRect.height);
+        const left=canvasRect.left-stageRect.left,top=canvasRect.top-stageRect.top,scale=canvasRect.width/Math.max(1,doc.width);
+        const analysing=objectScan.status==="analysing"&&objectScan.signature===imageSignature(doc);
+        if(analysing){
+          const sweep=left-120+((now/1400)%1)*(canvasRect.width+240);
+          const sheen=ctx.createLinearGradient(sweep-110,0,sweep+110,0);
+          sheen.addColorStop(0,"rgba(255,255,255,0)");sheen.addColorStop(.5,"rgba(255,255,255,.22)");sheen.addColorStop(1,"rgba(255,255,255,0)");
+          ctx.fillStyle=sheen;ctx.fillRect(left,top,canvasRect.width,canvasRect.height);
+        }
+        const regions=objectRegions.current?.signature===imageSignature(doc)?objectRegions.current.regions:[];
+        if(regions.length){
+          ctx.save();ctx.translate(left,top);ctx.scale(scale,scale);
+          ctx.lineWidth=1.25/scale;ctx.strokeStyle=getComputedStyle(document.documentElement).getPropertyValue("--accent").trim()||"#2fa8ff";ctx.globalAlpha=analysing?.8:.45;
+          if(analysing){ctx.setLineDash([5/scale,5/scale]);ctx.lineDashOffset=-(now/60)/scale;}
+          for(const region of regions)ctx.stroke(maskOutlinePath(region.canvas));
+          ctx.restore();
+        }
+      }
+      frame=requestAnimationFrame(draw);
+    };
+    frame=requestAnimationFrame(draw);
+    return()=>{cancelAnimationFrame(frame);const overlay=quickOverlayRef.current;if(overlay)overlay.getContext("2d")?.clearRect(0,0,overlay.width,overlay.height);};
+  },[tool,objectScan,quickProgress,doc]);
 
   useEffect(()=>{
     if(!quickTiles.length||!quickProgress)return;
@@ -1181,26 +1257,43 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
     if(id){try{await call(workspacePath(workspace.id,`runs/${id}/cancel`),"POST",{});}catch{/* the run may already be ending */}}
   }
 
-  async function analyseObjects(prompt=subject.trim()||"object"){
-    if(!doc||!segment||selecting||!canEdit||!authorized)return;
-    const snapshot=doc,signature=imageSignature(doc);setSelecting(true);hoveredObject.current=-1;
+  async function analyseObjects():Promise<ObjectRegion[]|undefined>{
+    if(!doc||!segment||!canEdit||!authorized)return;
+    const snapshot=doc,signature=imageSignature(doc),token=++scanToken.current;let total=QUICK_SELECT_FIRST.length+quickSelectPlan(true).length;
+    const current=()=>token===scanToken.current&&alive.current&&!!liveDoc.current&&imageSignature(liveDoc.current)===signature;
+    hoveredObject.current=-1;objectRegions.current={signature,regions:[]};setObjectScan({signature,status:"analysing",done:0,total});
     try{
       const flat=blankCanvas(doc.width,doc.height);renderDoc(flat.getContext("2d")!,{...doc,selection:null},{background:true});
       const source=await uploadPng(flat,"image",`objects-source-${Date.now()}.png`);
-      const done=await runAndWait(segment,{source_image:source.id},{prompt:prompt.trim()||"object",individual_masks:true});
-      if(!done||!alive.current)return;
-      if(done.state!=="succeeded"||!done.output_ids.length)throw new Error(done.error||"No object masks returned.");
-      const regions:ObjectRegion[]=[];
-      for(const id of done.output_ids.slice(0,24)){
-        const {bitmap}=await loadBitmap(assetUrl(workspace.id,id)),canvas=blankCanvas(snapshot.width,snapshot.height),c=canvas.getContext("2d",{willReadFrequently:true})!;
-        c.drawImage(bitmap,0,0,snapshot.width,snapshot.height);const pixels=c.getImageData(0,0,snapshot.width,snapshot.height);let area=0;
-        for(let i=0;i<pixels.data.length;i+=4){const v=pixels.data[i];pixels.data[i]=pixels.data[i+1]=pixels.data[i+2]=255;pixels.data[i+3]=v;if(v>127)area++;}
-        if(area){c.putImageData(pixels,0,0);regions.push({canvas,alpha:pixels.data,area});}
+      // Masks are cleaned before they become regions: a light blur and threshold fills pinholes and drops specks.
+      const soften=Math.max(2,Math.round(Math.min(snapshot.width,snapshot.height)*.006));
+      const concepts:string[]=[...QUICK_SELECT_FIRST];
+      for(let index=0;index<concepts.length;index++){
+        const concept=concepts[index];
+        if(!current())return;
+        if(concept==="person"){/* parts are planned once it is known whether there is a person */}
+        const done=await runAndWait(segment,{source_image:source.id},{prompt:concept,individual_masks:true});
+        if(!done||!current())return;
+        if(done.state!=="succeeded")throw new Error(done.error||"The picture could not be analysed.");
+        let found=false;
+        for(const id of done.output_ids.slice(0,6)){
+          const {bitmap}=await loadBitmap(assetUrl(workspace.id,id)),canvas=blankCanvas(snapshot.width,snapshot.height),c=canvas.getContext("2d",{willReadFrequently:true})!;
+          c.filter=`blur(${soften}px)`;c.drawImage(bitmap,0,0,snapshot.width,snapshot.height);c.filter="none";
+          const pixels=c.getImageData(0,0,snapshot.width,snapshot.height);let area=0;
+          for(let i=0;i<pixels.data.length;i+=4){const v=pixels.data[i]>127?255:0;pixels.data[i]=pixels.data[i+1]=pixels.data[i+2]=255;pixels.data[i+3]=v;if(v)area++;}
+          // Specks are not regions anyone clicks: at least 0.2 % of the picture, and not a copy of one found already.
+          const region={canvas,alpha:pixels.data,area,label:concept};
+          if(area>snapshot.width*snapshot.height*.002&&!objectRegions.current.regions.some(other=>sameRegion(other,region))){c.putImageData(pixels,0,0);objectRegions.current.regions.push(region);found=true;}
+        }
+        if(!current())return;
+        if(concept==="person"){concepts.push(...quickSelectPlan(found));total=concepts.length;}
+        setObjectScan({signature,status:"analysing",done:index+1,total});
       }
-      if(!liveDoc.current||imageSignature(liveDoc.current)!==signature)throw new Error("The image changed. Analyse objects again.");
-      objectRegions.current={signature,regions};setObjectsReady(regions.length);toast(regions.length?`${regions.length} object masks ready. Hover and click to select.`:"No matching objects. Try a different subject.");return regions;
-    }catch(error){toast((error as Error).message);}
-    finally{if(alive.current)setSelecting(false);}
+      setObjectScan({signature,status:"ready",done:total,total});
+      return objectRegions.current.regions;
+    }catch(error){
+      if(token===scanToken.current&&alive.current){setObjectScan({signature,status:"failed",done:0,total});toast((error as Error).message);}
+    }
   }
   /** Select subject: SAM 3.1 finds the named parts in the visible picture; the mask becomes the selection. */
   function saveSelection() {
@@ -1505,7 +1598,9 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
 
   function beginTransform(){
     if(!hist||!layer||!canEdit||!authorized||layer.kind==="adjust"||layer.locks?.position||quickMask||maskEdit||aiBusy||documents.busy||gesture.current||cropDrag.current||transformSession.current)return false;
-    transformSession.current={history:hist,tool};setTransforming(true);setTool("move");return true;
+    // The box sits on the visible pixels, not the layer's whole canvas; Cancel returns to the untrimmed history.
+    const trimmed=trimLayerToContent(hist.present,layer.id);
+    transformSession.current={history:hist,tool};if(trimmed){setHist(current=>current?{...current,present:trimmed}:current);thumbs.current.clear();}setTransforming(true);setTool("move");return true;
   }
   function finishTransform(accept:boolean){
     const session=transformSession.current;if(!session)return;transformDrag.current=null;transformSession.current=null;setTransforming(false);
@@ -1636,7 +1731,7 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
     const target=e.target instanceof HTMLElement?e.target:null;
     if((e.ctrlKey||e.metaKey)&&!e.shiftKey&&!e.altKey&&e.key.toLowerCase()==="g"&&target?.closest('.ds-layerrow__main')&&!document.querySelector('[role="dialog"][aria-modal="true"],[data-comfy-menu],[role="menu"]')){if(canEdit&&doc){e.preventDefault();groupSelected(true);}return;}
     if((e.ctrlKey||e.metaKey)&&!e.shiftKey&&!e.altKey&&e.key.toLowerCase()==="t"&&!target?.isContentEditable&&!target?.closest('input,textarea,select')&&!document.querySelector('[role="dialog"][aria-modal="true"],[data-comfy-menu],[role="menu"]')){if(beginTransform())e.preventDefault();return;}
-    if(ownsKeyboard(e.target))return;
+    if(ownsKeyboard(e.target, e.key))return;
     if (!hist || !doc) return;
     const mod = e.ctrlKey || e.metaKey;
     const key = e.key.toLowerCase();
@@ -1654,13 +1749,14 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
     if (gesture.current || panning.current) return;
     if (mod) {
       if (key === "z") { done(); setHist((h) => (h ? (e.shiftKey ? redo(h) : undo(h)) : h)); }
-      else if (key === "c" && !e.shiftKey && !window.getSelection()?.toString()) { done(); void copyImage(); }
+      else if (key === "c" && !window.getSelection()?.toString()) { done(); void copyImage(e.shiftKey); }
       else if (key === "y") { done(); setHist((h) => (h ? redo(h) : h)); }
       else if (key === "d") { done(); selectionAction(e.shiftKey ? "reselect" : "clear"); }
       else if (key === "i" && e.shiftKey) { done(); selectionAction("invert"); }
       else if (key === "a") { done(); selectionAction("all"); }
       else if (key === "j") { done(); viaCopy(e.shiftKey); }
       else if (key === "g" && !e.shiftKey && !e.altKey && canEdit) { done(); groupSelected(true); }
+      else if (key === "g" && e.shiftKey && !e.altKey && canEdit && layer?.group) { done(); apply(ungroupLayer(doc, layer.id)); }
       else if (key === "e") { done(); merge(e.shiftKey); }
       else if ((key === "[" || key === "]") && layer) { done(); apply(e.shiftKey ? moveLayerToEdge(doc, layer.id, key === "]" ? "top" : "bottom") : moveLayer(doc, layer.id, key === "]" ? "up" : "down")); }
       else if (key === "0") { done(); fit(); }
@@ -1672,6 +1768,11 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
       return;
     }
     if (e.altKey && key === "backspace") { done(); selectionAction("fill"); return; }
+    if (e.altKey && (key === "[" || key === "]") && layer) {
+      const index=doc.layers.findIndex(item=>item.id===layer.id),next=doc.layers[index+(key==="]" ? 1 : -1)];
+      if(next){done();layerAnchor.current=next.id;apply(selectLayer(doc,next.id));}
+      return;
+    }
     // Alt temporarily modifies the current tool; it must not activate bare-key shortcuts.
     if (e.altKey) return;
     if (key === "delete" || key === "backspace") { done(); if (doc.selection) selectionAction("delete"); else deleteSelected(); return; }
@@ -1705,42 +1806,58 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
   };
   /* Clipboard like Photoshop: paste an image as a new layer; copy the selected pixels (or the whole picture). */
   const pasteHandler = useRef<(e: ClipboardEvent) => void>(() => {});
+  const layerClip = useRef<{ key: string; bounds: Rect; name: string } | null>(null);
   pasteHandler.current = (e: ClipboardEvent) => {
-    if (e.defaultPrevented || !canEdit || ownsKeyboard(e.target)) return;
+    if (e.defaultPrevented || !canEdit || ownsKeyboard(e.target, "v")) return;
     const file = clipboardFile(e.clipboardData);
-    if (!file || !file.type.startsWith("image/")) return;
+    const clip = layerClip.current;
+    if (!file || !file.type.startsWith("image/")) {
+      // The browser may not have allowed writing to the system clipboard: our own copy is still here.
+      if (clip) { e.preventDefault(); pasteLayerClip(clip); }
+      return;
+    }
     e.preventDefault();
-    void addImage(file.name, URL.createObjectURL(file));
+    // Our own copy comes back at its place; an image from elsewhere is added as before.
+    void createImageBitmap(file).then((image) => {
+      const ours = !!clip && image.width === clip.bounds.w && image.height === clip.bounds.h;
+      image.close();
+      if (ours) pasteLayerClip(clip!); else void addImage(file.name, URL.createObjectURL(file));
+    }).catch(() => void addImage(file.name, URL.createObjectURL(file)));
   };
+  /** A pasted copy is a new layer at the copied place, named after its source; the clipboard keeps it. */
+  function pasteLayerClip(clip: { key: string; bounds: Rect; name: string }) {
+    const current = liveDoc.current; if (!current) return;
+    const fresh = cloneBitmap(clip.key, clip.bounds.w, clip.bounds.h).key;
+    apply(addAiResultLayer(current, fresh, clip.name, clip.bounds));
+  }
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => pasteHandler.current(e);
     addEventListener("paste", onPaste);
     return () => removeEventListener("paste", onPaste);
   }, []);
 
-  async function copyImage() {
+  /* Photoshop: Ctrl+C copies the active layer (inside the selection), Ctrl+Shift+C everything merged. The copy is
+     kept here, outside the history, so undoing any number of steps never loses it; the system clipboard gets it too. */
+  async function copyImage(merged = false) {
     if (!doc) return;
-    try {
-      const flat = blankCanvas(doc.width, doc.height);
-      renderDoc(flat.getContext("2d")!, { ...doc, selection: null });
-      const bounds = doc.selection ? selectionBounds(doc.selection) : null;
-      let out = flat;
-      if (doc.selection && bounds) {
-        const mask = getBitmap(doc.selection);
-        const c = flat.getContext("2d")!;
-        if (mask) {
-          c.globalCompositeOperation = "destination-in";
-          c.drawImage(mask, 0, 0);
-        }
-        out = blankCanvas(bounds.w, bounds.h);
-        out.getContext("2d")!.drawImage(flat, bounds.x, bounds.y, bounds.w, bounds.h, 0, 0, bounds.w, bounds.h);
-      }
-      const blob = await toPng(out);
-      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
-      toast(doc.selection ? "Selection copied" : "Image copied");
-    } catch {
-      toast("The browser did not allow copying the image.");
+    const source = !merged && layer && layer.kind !== "adjust" ? layerCanvas(doc, layer) : null;
+    const flat = source ?? blankCanvas(doc.width, doc.height);
+    if (!source) renderDoc(flat.getContext("2d")!, { ...doc, selection: null });
+    if (doc.selection) {
+      const mask = getBitmap(doc.selection), c = flat.getContext("2d")!;
+      if (mask) { c.globalCompositeOperation = "destination-in"; c.drawImage(mask, 0, 0); c.globalCompositeOperation = "source-over"; }
     }
+    const pixels = flat.getContext("2d", { willReadFrequently: true })!.getImageData(0, 0, doc.width, doc.height).data;
+    const bounds = alphaBounds(pixels, doc.width, doc.height);
+    if (!bounds) { toast(doc.selection ? "The selected area is empty on this layer." : "This layer is empty."); return; }
+    const out = blankCanvas(bounds.w, bounds.h);
+    out.getContext("2d")!.drawImage(flat, bounds.x, bounds.y, bounds.w, bounds.h, 0, 0, bounds.w, bounds.h);
+    const key = `bmp:clip${Date.now().toString(36)}`; setBitmap(key, out);
+    layerClip.current = { key, bounds, name: source && layer ? `${layer.name} copy` : "Merged copy" };
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": await toPng(out) })]);
+    } catch { /* the editor's own copy still pastes */ }
+    toast(source ? (doc.selection ? "Selection copied from the layer" : "Layer copied") : "Merged copy");
   }
 
   useEffect(() => {
@@ -1780,8 +1897,10 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
       if(!canEdit||!segment){pointerDown.current=false;if(canEdit&&!segment)setSelectionUnavailable(true);return;}
       const cached=objectRegions.current,p=point(event);
       const mode=event.altKey?"subtract":event.shiftKey?"add":selMode, signature=imageSignature(doc);
-      const select=(regions:ObjectRegion[])=>{const current=liveDoc.current;if(!current||imageSignature(current)!==signature)return;const index=hitObject(regions,p.x,p.y,current.width,current.height);if(index>=0)apply({...current,selection:combine(current,regions[index].canvas,mode)});else toast("No object found at this point.");};
-      if(cached?.signature===signature)select(cached.regions);else void analyseObjects().then(regions=>{if(regions)select(regions);});
+      const select=(regions:ObjectRegion[])=>{const current=liveDoc.current;if(!current||imageSignature(current)!==signature)return;const index=hitObject(regions,p.x,p.y,current.width,current.height);if(index>=0){apply({...current,selection:combine(current,regions[index].canvas,mode)});const label=regions[index].label;if(label)toast(`Selected ${label}`);}else toast("No region found at this point.");};
+      if(cached?.signature===signature&&(cached.regions.length||objectScan?.status!=="analysing"))select(cached.regions);
+      else if(objectScan?.signature===signature&&objectScan.status==="analysing")toast("Still analysing the picture.");
+      else void analyseObjects().then(regions=>{if(regions)select(regions);});
       pointerDown.current=false;return;
     }
     if (tool === "crop" && doc) {
@@ -1946,7 +2065,7 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
   }
 
   function moveEvent(event: React.PointerEvent<HTMLElement>) {
-    if(tool==="subject"&&hoverObjects&&doc&&!pointerDown.current){
+    if(tool==="subject"&&doc&&!pointerDown.current){
       const cached=objectRegions.current,p=point(event),index=cached?.signature===imageSignature(doc)?hitObject(cached.regions,p.x,p.y,doc.width,doc.height):-1;
       if(index!==hoveredObject.current){hoveredObject.current=index;paint(doc);}return;
     }
@@ -2223,8 +2342,20 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
       const depth=groups.length+(l.clip?1:0);
       const picture = thumbOf(l);
       rows.push(
+        <div key={l.id} className="cf-layer-slot" onContextMenu={e=>{
+          e.preventDefault();
+          layerAnchor.current=l.id;setMulti([]);apply(selectLayer(doc,l.id));
+          setMenu({x:e.clientX,y:e.clientY,items:[
+            {id:"merge-down",label:"Merge down",onSelect:()=>merge("down")},
+            {id:"merge-visible",label:"Merge visible",onSelect:()=>merge("visible")},
+            {id:"merge-all",label:"Merge all",onSelect:()=>merge("all")},
+            {id:"duplicate",label:"Duplicate layer",onSelect:duplicate},
+            {id:"group",label:"Group selected",onSelect:()=>groupSelected(true)},
+            {id:"delete",label:`Delete “${l.name}”`,danger:true,onSelect:deleteSelected},
+          ]});
+        }}>
         <LayerRow
-          key={l.id} name={l.name} depth={depth} mask={l.mask && thumbKey(l.mask) ? <img src={thumbKey(l.mask)} alt="" /> : undefined} thumb={picture ? <img src={picture} alt="" title="Ctrl-click to select layer pixels" onClick={e=>{if(!e.ctrlKey&&!e.metaKey)return;e.preventDefault();e.stopPropagation();const mode:SelectMode=e.shiftKey?(e.altKey?"intersect":"add"):(e.altKey?"subtract":"replace");const selection=selectLayerPixels(doc,l,mode);if(selection)apply({...doc,selection});else toast("The layer pixels are not available.");}} /> : l.kind === "adjust" ? <Contrast size={18} /> : undefined}
+          name={l.name} depth={depth} mask={l.mask && thumbKey(l.mask) ? <img src={thumbKey(l.mask)} alt="" /> : undefined} thumb={picture ? <img src={picture} alt="" title="Ctrl-click to select layer pixels" onClick={e=>{if(!e.ctrlKey&&!e.metaKey)return;e.preventDefault();e.stopPropagation();const mode:SelectMode=e.shiftKey?(e.altKey?"intersect":"add"):(e.altKey?"subtract":"replace");const selection=selectLayerPixels(doc,l,mode);if(selection)apply({...doc,selection});else toast("The layer pixels are not available.");}} /> : l.kind === "adjust" ? <Contrast size={18} /> : undefined}
           maskOff={l.maskOff} maskActive={maskEdit === l.id && !!l.mask}
           onMask={(ev) => {
             if (ev.shiftKey) return apply(updateLayer(doc, l.id, { maskOff: !l.maskOff }));
@@ -2247,8 +2378,14 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
           visible={l.visible} selected={l.id === doc.selectedId || multi.includes(l.id)} linked={l.linked} dragging={dragging === l.id}
           onSelect={(e) => {
             if (e.altKey) return apply(updateLayer(doc, l.id, { clip: !l.clip }));
-            if (e.shiftKey && doc.selectedId && l.id !== doc.selectedId) return setMulti((m) => (m.includes(l.id) ? m.filter((x) => x !== l.id) : [...m, l.id]));
-            setMulti([]);
+            if (e.shiftKey && doc.selectedId && l.id !== doc.selectedId) {
+              const order=doc.layers.map(item=>item.id),from=layerAnchor.current??doc.selectedId;
+              const a=order.indexOf(from),b=order.indexOf(l.id);
+              if(a>=0&&b>=0)setMulti(order.slice(Math.min(a,b),Math.max(a,b)+1).filter(id=>id!==l.id));
+              apply(selectLayer(doc,l.id));
+              return;
+            }
+            layerAnchor.current=l.id;setMulti([]);
             apply(selectLayer(doc, l.id));
           }}
           onOpen={() => { setMulti([]); apply(selectLayer(doc, l.id)); setFloating(l.kind === "adjust" ? "adjust" : "style"); }}
@@ -2259,7 +2396,8 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
           onDragOver={() => { if (dragId.current && dragId.current !== l.id) setDropId(l.id); }}
           onDrop={() => { if (dragId.current && dragId.current !== l.id) apply(reorderLayer(doc, dragId.current, l.id)); dragId.current = null; setDragging(null); setDropId(null); }}
           onDragEnd={() => { dragId.current = null; setDragging(null); setDropId(null); }}
-        />,
+        />
+        </div>,
       );
     }
     return rows;
@@ -2338,18 +2476,50 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
               <IconButton label="Undo" disabled={!hist || hist.past.length === 0} onClick={() => setHist((h) => (h ? undo(h) : h))}><Undo2 size={16} /></IconButton>
               <IconButton label="Redo" disabled={!hist || hist.future.length === 0} onClick={() => setHist((h) => (h ? redo(h) : h))}><Redo2 size={16} /></IconButton>
               <Button variant="secondary" disabled={downloading} onClick={() => void download()}>{downloading ? "Exporting…" : "Download PNG"}</Button>
-              {canEdit&&authorized&&<MenuButton label="Document actions" icon={<Folder size={16}/>} items={[{id:"open",label:"Open document",onSelect:()=>setDocumentPicker(true)},{id:"png",label:"Save PNG to Library",onSelect:()=>void save(),disabled:saving},...firstFrameTargets.map((target)=>({id:target.id,label:`First frame: ${target.label}`,onSelect:()=>void useAsFirstFrame(target.id),disabled:saving}))]}/>}
               {returnTicket && canEdit && authorized
                 ? <><Button variant="secondary" disabled={saving} onClick={backWithoutChanges}>Back without changes</Button><Button variant="primary" disabled={saving} onClick={() => void useInTool()}>{saving ? "Saving…" : "Use and go back"}</Button></>
                 : canEdit && authorized && <Button variant="primary" disabled={documents.busy} onClick={() => void documents.save().then(()=>toast("Layered document saved")).catch(()=>{})}>{documents.busy ? "Saving…" : "Save"}</Button>}
             </>)}
         >
           {transforming?<><Meta>Transforming layer: {layer?.name??"Layer"} · Alt scales from center · Shift snaps 15°</Meta><Button variant="secondary" onClick={()=>finishTransform(false)}>Cancel transform</Button><Button variant="primary" onClick={()=>finishTransform(true)}>Apply transform</Button></>:<>
+          {canEdit&&authorized&&<MenuButton label="Document actions" icon={<Folder size={16}/>} align="left" items={[
+              // Open document is the regular Library modal; Open image from device goes straight to the system dialog.
+              {id:"open",label:"Open document",onSelect:()=>setPicker(true)},
+              {id:"recent",label:"Recent documents",onSelect:()=>setDocumentPicker(true)},
+              ...(!aiBusy?[{id:"import",label:"Open image from device",onSelect:()=>void chooseDeviceFiles({accept:"image/*"}).then(([file])=>{if(file)addFile(file);})}]:[]),
+              ...(!documents.busy?[{id:"save-doc",label:"Save layered document",onSelect:()=>void documents.save().then(()=>toast("Layered document saved")).catch(()=>{})}]:[]),
+              ...(!saving?[
+                {id:"png",label:"Save PNG to Library",onSelect:()=>void save()},
+                ...firstFrameTargets.map((target)=>({id:target.id,label:target.id==="animate"?"Use as first frame → Create Video":"Use as first frame → Swap a thing",onSelect:()=>void useAsFirstFrame(target.id)})),
+              ]:[]),
+            ]}/>}
           <Button variant="secondary" disabled={!canEdit} onClick={() => setPicker(true)}><ImagePlus size={16} />Import image</Button>
-          <Button variant="secondary" onClick={()=>selectionAction("all")}>Select all</Button>
-          {(doc.selection||quickMask)&&<Button variant="secondary" disabled={!doc.selection} onClick={()=>selectionAction("clear")}>Deselect</Button>}
           {layer&&layer.kind!=="adjust"&&!layer.locks?.position&&!quickMask&&!maskEdit&&canEdit&&authorized&&!aiBusy&&<Button variant="secondary" title={`Free transform ${layer.name} (Ctrl+T)`} onClick={beginTransform}>Transform layer</Button>}
           {canEdit&&authorized&&<Button variant="secondary" aria-pressed={quickMask} onClick={toggleQuickMask} title="Quick mask (Q)">{quickMask?"Exit quick mask":"Quick mask"}</Button>}
+          {/* Selection modes and Quick upscale live in the options bar (Photoshop), never on the picture: there they
+              swallowed selection drags that started near the top of the image. */}
+          {tool==="subject"&&segment&&<>
+            {objectScan?.signature===imageSignature(doc)&&objectScan.status==="analysing"
+              ?<Meta><span className="ds-shimmer">Analysing picture</span> · {objectScan.done} of {objectScan.total}</Meta>
+              :objectScan?.signature===imageSignature(doc)&&objectScan.status==="failed"
+                ?<Button variant="secondary" onClick={()=>void analyseObjects()}>Analyse again</Button>
+                :null}
+            <TextField hideLabel label="Select subject" title="Click a region to select it · Shift adds · Alt removes" placeholder="Click a region, or name one…" value={subject} onChange={setSubject} onKeyDown={(e) => { if (e.key === "Enter") void selectSubject(); }} />
+            {subject.trim()&&<Button variant="secondary" disabled={!canEdit||!authorized||selecting||!!aiBusy} onClick={() => void selectSubject()}>Select</Button>}
+          </>}
+          {/* Everything about the selection sits together while a selection tool is on; Ctrl+A / Ctrl+D work everywhere. */}
+          {SELECT_TOOLS.includes(tool)&&<>
+            <SegmentedTabs quiet label="Selection mode" value={selMode} onChange={setSelMode} items={[{ id: "replace", label: "New" }, { id: "add", label: "Add" }, { id: "subtract", label: "Subtract" }, { id: "intersect", label: "Intersect" }]} />
+            <Button variant="secondary" title="Select all (Ctrl+A)" onClick={()=>selectionAction("all")}>Select all</Button>
+            {doc.selection&&<Button variant="secondary" title="Deselect (Ctrl+D)" onClick={()=>selectionAction("clear")}>Deselect</Button>}
+          </>}
+          {(upscale||detailUpscale)&&doc&&canEdit&&authorized&&<div className="cf-editor-quicklaunch">
+            <Button variant="secondary" disabled={!!aiBusy||!!quickProgress} onClick={()=>void quickUpscaleVisible("fast")} title="Fast AI upscale of the visible area">Quick upscale</Button>
+            <div className="cf-editor-quickchoices" role="group" aria-label="Quick upscale mode">
+              <Button variant="surface" disabled={!!aiBusy||!!quickProgress} onClick={()=>void quickUpscaleVisible("fast")} title="Fast: ESRGAN detail and real 2x/4x resolution">Fast</Button>
+              <Button variant="surface" disabled={!!aiBusy||!!quickProgress||!detailUpscale} onClick={()=>void quickUpscaleVisible("detail")} title="Detailed: a light redraw of textured tiles, flat areas only enlarged, 2x canvas">Detailed</Button>
+            </div>
+          </div>}
           {tool==="magicEraser"&&<>
             <InlineSelect label="Magic eraser mode" value={magicMode} onChange={value=>{setMagicMode(value as "colour"|"semantic");magicSource.current=null;}} options={[{value:"colour",label:"Colour region"},...(segment?[{value:"semantic",label:"Describe region"}]:[])]}/>
             {magicMode==="colour"?<><SliderField label="Tolerance" min={0} max={255} value={tolerance} onChange={setTolerance}/><Checkbox checked={contiguous} onChange={setContiguous}>Connected only</Checkbox><Meta>Click a colour region to erase it immediately with a clean 1 px matte.</Meta></>:<><TextField label="Remove what" value={subject} onChange={setSubject} placeholder="hair, background, jacket…"/><Button variant="primary" disabled={selecting||!subject.trim()||!authorized} onClick={()=>void selectSubject()}>{selecting?"Finding and erasing…":"Erase described region"}</Button></>}
@@ -2382,11 +2552,15 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
           </>}
         </OptionsBar>
         <Split>
-          <Canvas>
+          <Canvas workspace>
             <Stage ref={stageRef}
               onDragOver={event=>{if(!subjectRelight&&edit&&canEdit&&authorized&&!aiBusy&&(event.dataTransfer.types.includes(CHARACTER_DRAG_TYPE)||event.dataTransfer.types.includes("text/plain")))event.preventDefault();}}
               onDrop={event=>{const id=characterDropId(event.dataTransfer.getData(CHARACTER_DRAG_TYPE),event.dataTransfer.getData("text/plain"));if(!id)return;event.preventDefault();event.stopPropagation();const canvas=canvasRef.current;if(!canvas)return;const bounds=canvas.getBoundingClientRect();if(bounds.width<=0||bounds.height<=0||event.clientX<bounds.left||event.clientX>bounds.right||event.clientY<bounds.top||event.clientY>bounds.bottom){toast("Drop the character inside the image.");return;}void placeCharacter(id,{x:(event.clientX-bounds.left)/bounds.width,y:(event.clientY-bounds.top)/bounds.height});}}
-              onPointerDown={event=>{if(event.button===0&&event.target===event.currentTarget&&!transformSession.current){if(doc.selection)lastSelection.current=doc.selection;if(doc.selection||doc.selectedId)apply({...doc,selection:null,selectedId:null});setMulti([]);}}}
+              /* Rectangle and lasso selections may start beside the picture (Photoshop); a click there with another tool
+                 still clears the selection. While such a drag runs the work area forwards the pointer to the canvas logic. */
+              onPointerDown={event=>{if(event.target!==event.currentTarget||transformSession.current||event.button!==0)return;if((tool==="rect"||tool==="lasso")&&canEdit){down(event);return;}if(doc.selection)lastSelection.current=doc.selection;if(doc.selection||doc.selectedId)apply({...doc,selection:null,selectedId:null});setMulti([]);}}
+              onPointerMove={event=>{if(event.target===event.currentTarget&&gesture.current)moveEvent(event);}}
+              onPointerUp={event=>{if(event.target===event.currentTarget&&gesture.current)up(event);}}
               status={quickProgress?undefined:aiBusy ? <Working label={upscaling?"Upscaling…":AI_BUSY[aiBusy]} /> : selecting ? <Working label="Selecting…" /> : undefined} rail={transforming?undefined:(
               <div className="cf-editor-rail">
                 <ToolRail label="Tool" value={tool} onChange={next=>{setTool(next);if(next==="maskBrush")setMaskEdit(null);}} items={[
@@ -2414,19 +2588,6 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
               <canvas ref={canvasRef} tabIndex={0} aria-label="Image" data-tool={tool === "brush" && altHeld && !quickMask ? "eyedropper" : tool} className="cf-editor-canvas" onPointerDown={down} onPointerMove={moveEvent} onPointerUp={up} onPointerCancel={cancelGesture} onLostPointerCapture={() => { if (!preview.current?.poly) cancelGesture(); }} onPointerLeave={() => { if (ringRef.current) ringRef.current.style.display = "none";if(hoveredObject.current>=0){hoveredObject.current=-1;paint(doc);} }} />
               <canvas ref={outlineCanvasRef} className="cf-editor-outline" aria-hidden="true" />
               <div className="cf-editor-quicklayer"><canvas ref={quickOverlayRef} className="cf-editor-quickoverlay" aria-hidden="true" /></div>
-              {/* One stack at the top centre: the selection modes while a selection tool is on, Quick upscale under them. */}
-              <div className="cf-editor-topstack">
-              {SELECT_TOOLS.includes(tool) && <div className="cf-editor-selectionmodes ds-card">
-                <SegmentedTabs quiet label="Selection mode" value={selMode} onChange={setSelMode} items={[{ id: "replace", label: "New" }, { id: "add", label: "Add" }, { id: "subtract", label: "Subtract" }, { id: "intersect", label: "Intersect" }]} />
-              </div>}
-              {(upscale||detailUpscale)&&doc&&canEdit&&authorized&&<div className="cf-editor-quicklaunch">
-                <Button variant="surface" disabled={!!aiBusy||!!quickProgress} onClick={()=>void quickUpscaleVisible("fast")} title="Fast AI upscale of the visible area">Quick upscale</Button>
-                <div className="cf-editor-quickchoices" role="group" aria-label="Quick upscale mode">
-                  <Button variant="surface" disabled={!!aiBusy||!!quickProgress} onClick={()=>void quickUpscaleVisible("fast")} title="Fast: ESRGAN detail and real 2x/4x resolution">Fast</Button>
-                  <Button variant="surface" disabled={!!aiBusy||!!quickProgress||!detailUpscale} onClick={()=>void quickUpscaleVisible("detail")} title="Detailed: a light redraw of textured tiles, flat areas only enlarged, 2x canvas">Detailed</Button>
-                </div>
-              </div>}
-              </div>
               {quickProgress&&<div className="cf-editor-quickhud"><Progress floating label={`Quick upscale ${quickScale}×`} value={Math.round(100*quickProgress.done/quickProgress.total)} detail={`Tile ${quickProgress.done} of ${quickProgress.total}${quickSkipped.length?` · ${quickSkipped.length} flat, only enlarged`:""}`} action={<IconButton label="Cancel quick upscale" onClick={()=>void cancelQuickUpscale()}><X size={14}/></IconButton>} /></div>}
               {transforming&&layer&&cropScreen.w>0&&<TransformHandles box={{x:layer.x,y:layer.y,w:layer.w*layer.scale,h:layer.h*layer.scale,rotation:layer.rotation}} viewport={cropScreen} width={doc.width} height={doc.height}
                 onStart={startTransformDrag} onMove={moveTransformDrag} onEnd={()=>{transformDrag.current=null;}} onCancel={cancelTransformDrag} onNudge={nudgeTransform} onApply={()=>finishTransform(true)} onDiscard={()=>finishTransform(false)}/>}
@@ -2434,12 +2595,6 @@ export function ImageEditor({ workspace, project, userId, call, canEdit, authori
                 onStart={(handle,event)=>{if(event.button!==0||aiBusy)return;const rect=cropBox.current??fullCrop(dims(doc));cropDrag.current=handle as CropHandle;cropStart.current={rect,point:point(event)};capture(event);}}
                 onMove={moveEvent} onEnd={up} onCancel={cancelGesture}
                 onNudge={(handle,dx,dy)=>{const rect=cropBox.current??fullCrop(dims(doc));setCropBox(dragCrop(rect,handle as CropHandle,{x:0,y:0},{x:dx,y:dy},dims(doc),autoExtend));paint(doc);}}/>}
-              {tool === "subject" && segment && !selecting && !aiBusy && <div className="cf-editor-subject">
-                <Meta>Click an object to select it automatically.</Meta>
-                <TextField label="Select subject" placeholder="face, hair, jacket, sleeve…" value={subject} onChange={setSubject} onKeyDown={(e) => { if (e.key === "Enter") void selectSubject(); }} />
-                <Checkbox checked={hoverObjects} onChange={value=>{setHoverObjects(value);hoveredObject.current=-1;if(value)void analyseObjects();}}>Hover objects</Checkbox>
-                {hoverObjects?<><Button variant="primary" disabled={!canEdit||!authorized} onClick={()=>void analyseObjects()}>Analyse objects</Button><Meta>{objectRegions.current?.signature===imageSignature(doc)?`${objectsReady} masks` : "Analyse to refresh"}</Meta></>:<Button variant="primary" disabled={!subject.trim() || !canEdit || !authorized} onClick={() => void selectSubject()}>Select</Button>}
-              </div>}
               {tool === "crop" && cropPreview && doc && !isFullCrop(cropPreview, dims(doc)) && <div className={`cf-editor-cropbar ds-card${doc.height>doc.width?" cf-editor-cropbar--portrait":""}`} role="group" aria-label="Crop">
                 <Toolbar>
                   <Button variant="secondary" onClick={cancelCropPreview}>Cancel</Button>

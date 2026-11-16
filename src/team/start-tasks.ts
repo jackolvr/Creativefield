@@ -12,7 +12,7 @@ export type StartNeed = "replace" | "motion" | "effects" | "restyle" | "film" | 
 export type StartTask = { /** One of a few promoted tiles: picture edge to edge, name in bold on it. */ promo?: boolean; /** A loop that plays on a promoted tile. */ video?: string; /** The product leads with this task: it comes first and wears the brand ring. */ featured?: boolean; /** A picture or loop from public/ that shows the result; the card shows the icon until there is one. */ thumb?: string; id: StartTaskId; group: StartGroup; label: string; text: string; href: string; needs: StartNeed; workflow?: string };
 
 export const START_TASKS: StartTask[] = [
-  { promo: true, video: "/examples/promo/video-studio.mp4", id: "video", group: "Create", label: "Make a video", text: "From a photo or from a few words.", href: "#video/create", needs: "video", thumb: "/reels/wan22-t2v-5b.png" },
+  { promo: true, video: "/examples/tiles/video.mp4", id: "video", group: "Create", label: "Make a video", text: "From a photo or from a few words.", href: "#video/create", needs: "video", thumb: "/reels/wan22-t2v-5b.png" },
   { id: "picture", group: "Create", label: "Make a picture", text: "Describe it in words and get a picture.", href: "#image", needs: "image", thumb: "/reels/wan22-i2v-5b.png" },
   { id: "effect-clips", group: "Create", label: "Effect clips", text: "One photo, one effect: breathe fire, call a storm, let flowers bloom.", href: "#video/effects", needs: "h3effects" },
   { id: "ad", group: "Create", label: "Ad Studio", text: "Create a product shot and turn it into a video.", href: "#marketing", needs: "adimage" },
@@ -20,7 +20,7 @@ export const START_TASKS: StartTask[] = [
   { id: "model3d", group: "Create", label: "3D models", text: "Preview a model you have or browse 3D templates.", href: "#3d", needs: "always" },
   { id: "character", group: "Create", label: "My characters", text: "Save a person once, then use them to replace a face, make a picture or fill a shot.", href: "#characters", needs: "always" },
   { promo: true, video: "/examples/welcome-fotofield.mp4", id: "fix-picture", group: "Change", label: "FotoField", text: "Our free, open-source photo editor: layers, masks and AI edits.", href: "#imageedit/layers", needs: "always", thumb: "/examples/fotofield.webp", featured: true },
-  { promo: true, video: "/examples/promo/reshoot.mp4", id: "swap-person", group: "Change", label: "Replace character", text: "Put a face from a photo onto someone in a video.", href: "#video/transform/person", needs: "replace" },
+  { promo: true, video: "/examples/tiles/swap-person.mp4", id: "swap-person", group: "Change", label: "Replace character", text: "Put a face from a photo onto someone in a video.", href: "#video/transform/person", needs: "replace" },
   { id: "swap-thing", group: "Change", label: "Swap a thing", text: "Mark something in the clip and turn it into something else.", href: "#video/transform/swap", needs: "edit", thumb: "/reels/feature-swap.png" },
   { id: "new-look", group: "Change", label: "New look", text: "Same video as a cartoon, a painting or at night.", href: "#video/transform/restyle", needs: "restyle", thumb: "/reels/feature-effects.png" },
   { id: "copy-moves", group: "Change", label: "Copy moves", text: "Make your character dance or move like someone in a video.", href: "#motion", needs: "motion" },

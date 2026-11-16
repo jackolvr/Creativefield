@@ -750,6 +750,20 @@ export function UploadSlot({
   );
 }
 
+/** Opens the system file dialog directly, for a menu entry such as "Open image from device" that has no
+ * slot on screen. Resolves with the chosen files, or an empty list when the dialog is cancelled. */
+export function chooseDeviceFiles({ accept, multiple = false }: { accept?: string; multiple?: boolean } = {}): Promise<File[]> {
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    if (accept) input.accept = accept;
+    input.multiple = multiple;
+    input.addEventListener("change", () => resolve(Array.from(input.files ?? [])), { once: true });
+    input.addEventListener("cancel", () => resolve([]), { once: true });
+    input.click();
+  });
+}
+
 /* ── Prompt field ───────────────────────────────────────────── */
 
 /* UploadPair: two slots side by side (character + motion video). */
@@ -2213,7 +2227,7 @@ export function ActionBar({ label, children }: { label: string; children: ReactN
 }
 
 /* MenuButton: an icon (≡) that opens a short list of commands right under it. Commands learn whether Alt was held. */
-export function MenuButton({ label, icon, items }: { label: string; icon: ReactNode; items: Array<{ id: string; label: string; onSelect: (alt: boolean) => void; disabled?: boolean }> }) {
+export function MenuButton({ label, icon, items, align = "right" }: { label: string; icon: ReactNode; align?: "left" | "right"; items: Array<{ id: string; label: string; onSelect: (alt: boolean) => void; disabled?: boolean }> }) {
   const [open, setOpen] = useState(false);
   const alt = useRef(false);
   const ref = useRef<HTMLSpanElement>(null);
@@ -2221,7 +2235,7 @@ export function MenuButton({ label, icon, items }: { label: string; icon: ReactN
   return (
     <span className="ds-popbtn" ref={ref}>
       <IconButton label={label} aria-haspopup="menu" aria-expanded={open} onClick={(e) => { alt.current = e.altKey; setOpen((o) => !o); }}>{icon}</IconButton>
-      {open && <Dropdown anchor={ref} align="right" items={enabled} onPick={(id, altNow) => { setOpen(false); enabled.find((i) => i.id === id)?.onSelect(alt.current || altNow); }} onDismiss={() => setOpen(false)} />}
+      {open && <Dropdown anchor={ref} align={align} items={enabled} onPick={(id, altNow) => { setOpen(false); enabled.find((i) => i.id === id)?.onSelect(alt.current || altNow); }} onDismiss={() => setOpen(false)} />}
     </span>
   );
 }
@@ -3366,6 +3380,8 @@ export function MediaViewer({ open, src, name, onClose, actions, onActivate, med
   const panel = useRef<HTMLDivElement>(null);
   const image=useRef<HTMLImageElement>(null),editor=useContext(mediaEditContext),urls=useRef<string[]>([]),start=useRef<{x:number;y:number}|null>(null);
   const imageWrap=useRef<HTMLDivElement>(null),pan=useRef<{x:number;y:number;from:number;fromY:number}|null>(null),fit=useRef<{width:number;height:number}|null>(null);
+  /* Compare: both pictures share one zoom and pan, measured on the frame the wheel or drag happens in. */
+  const pairWrap=useRef<HTMLDivElement>(null),pairFit=useRef<{width:number;height:number}|null>(null);
   const [view,setView]=useState<ViewerTransform>(VIEWER_FIT);
   const [annotationOpen,setAnnotationOpen]=useState(false),[chooser,setChooser]=useState<"openIn"|"reference"|null>(null),[pairStacked,setPairStacked]=useState(false),[removing,setRemoving]=useState(false),[deleting,setDeleting]=useState(false);
   /* On a phone the details are a sheet that rises from the bottom only when asked for; the media keeps the screen. */
@@ -3373,19 +3389,34 @@ export function MediaViewer({ open, src, name, onClose, actions, onActivate, med
   useEffect(()=>{setDetailsOpen(false);},[open,src]);
   const generation=useRef(0);
   const [result,setResult]=useState<CropResult|null>(null),[crop,setCrop]=useState<{x:number;y:number;w:number;h:number}|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState("");
-  const primary=useRef<HTMLVideoElement>(null),reference=useRef<HTMLVideoElement>(null),[linked,setLinked]=useState(true),[showCompare,setShowCompare]=useState(!!compare),[playbackHint,setPlaybackHint]=useState("");
-  useEffect(()=>{setLinked(true);setShowCompare(!!compare);setPairStacked(false);setRemoving(false);setDeleting(false);setPlaybackHint("");},[open,src,compare?.src]);
+  const primary=useRef<HTMLVideoElement>(null),reference=useRef<HTMLVideoElement>(null),[linked,setLinked]=useState(true),[showCompare,setShowCompare]=useState(!!compare&&mediaType==="video"),[playbackHint,setPlaybackHint]=useState("");
+  useEffect(()=>{setLinked(true);setShowCompare(!!compare&&mediaType==="video");setPairStacked(false);setRemoving(false);setDeleting(false);setPlaybackHint("");},[open,src,compare?.src]);
   useEffect(()=>{if(open&&linked&&mediaType==="video"&&compare&&primary.current&&reference.current)return linkMediaPlayback(reference.current,primary.current,setPlaybackHint);},[open,linked,mediaType,src,compare?.src]);
   /* Opening the full view starts its video; the small previews stay paused (the click opens, it does not preview). */
   useEffect(()=>{if(!open||mediaType!=="video")return;const frame=requestAnimationFrame(()=>{void primary.current?.play().catch(()=>{});});return()=>cancelAnimationFrame(frame);},[open,src,mediaType,compare?.src]);
   useEffect(()=>{const revision=++generation.current;setResult(null);setCrop(null);setAnnotationOpen(false);setBusy(false);setError("");start.current=null;return()=>{if(generation.current===revision)generation.current++;urls.current.forEach(url=>URL.revokeObjectURL(url));urls.current=[];};},[open,src]);
   const current=result??{src,name};
   /* A new picture, a crop or a closed view starts at fit; the wheel zoom never carries over. */
-  useEffect(()=>{setView(VIEWER_FIT);pan.current=null;fit.current=null;},[open,src,current.src]);
+  useEffect(()=>{setView(VIEWER_FIT);pan.current=null;fit.current=null;pairFit.current=null;},[open,src,current.src,showCompare]);
+  useEffect(()=>{
+    const element=pairWrap.current;
+    if(!open||mediaType!=="image"||!compare||!showCompare||crop||!element)return;
+    const onWheel=(event:WheelEvent)=>{
+      const frame=(event.target as Element|null)?.closest?.(".ds-viewer__pairimg");if(!frame)return;
+      event.preventDefault();
+      const bounds=frame.getBoundingClientRect();
+      if(!pairFit.current)pairFit.current={width:bounds.width,height:bounds.height};
+      const base=pairFit.current;
+      setView(previous=>zoomViewer(previous,wheelZoomFactor(event.deltaY),{x:event.clientX-bounds.left,y:event.clientY-bounds.top},{width:base.width,height:base.height}));
+    };
+    element.addEventListener("wheel",onWheel,{passive:false});
+    return()=>element.removeEventListener("wheel",onWheel);
+  },[open,mediaType,compare?.src,showCompare,crop]);
   useEffect(()=>{
     const element=imageWrap.current;
     if(!open||mediaType!=="image"||crop||!element)return;
-    /* React's wheel listener is passive, so the page would scroll; zoom is handled natively here.
+    /* (The pair and the single picture are separate nodes, keyed; this listener is re-attached when Compare toggles.)
+       React's wheel listener is passive, so the page would scroll; zoom is handled natively here.
        The image is laid out at the zoomed size (not CSS-scaled), so it is painted from the source
        pixels instead of upscaling the small fit view. */
     const onWheel=(event:WheelEvent)=>{
@@ -3397,7 +3428,7 @@ export function MediaViewer({ open, src, name, onClose, actions, onActivate, med
     };
     element.addEventListener("wheel",onWheel,{passive:false});
     return()=>element.removeEventListener("wheel",onWheel);
-  },[open,mediaType,crop,current.src]);
+  },[open,mediaType,crop,current.src,showCompare]);
   const tools=open?editor.tools?.({src:current.src,name:current.name,mediaType}):undefined;
   const [generationInfo,setGenerationInfo]=useState<MediaGenerationInfo|undefined>();
   useEffect(()=>{let live=true;setGenerationInfo(undefined);if(open&&tools?.generation)void tools.generation().then(info=>{if(live)setGenerationInfo(info);}).catch(()=>{});return()=>{live=false;};},[open,current.src,mediaType]);
@@ -3442,7 +3473,15 @@ export function MediaViewer({ open, src, name, onClose, actions, onActivate, med
       event.preventDefault();event.stopPropagation();onNavigate(event.key==="ArrowLeft"?-1:1);
     }}>
       <div className="ds-viewer__frame" ref={swipeFrame} onMouseDown={event=>{if(event.target===event.currentTarget)onClose();}}>
-        {mediaType === "video" ? compare&&showCompare?<div className="ds-viewer__video-pair" data-stacked={pairStacked||undefined}><figure><figcaption>{compare.name}</figcaption><video ref={reference} src={compare.src} aria-label={compare.name} controls muted playsInline preload="metadata" onLoadedMetadata={event=>{if(event.currentTarget.videoWidth>event.currentTarget.videoHeight)setPairStacked(true);}}/></figure><figure><figcaption>Result</figcaption><video ref={primary} src={current.src} aria-label="Comparison result" controls playsInline preload="metadata" onLoadedMetadata={event=>{if(event.currentTarget.videoWidth>event.currentTarget.videoHeight)setPairStacked(true);}}/></figure></div>:<video ref={primary} src={current.src} aria-label={current.name} controls autoPlay playsInline onDoubleClick={onActivate} /> : <div className="ds-viewer__image" ref={imageWrap} data-cropping={!!crop||undefined} data-zoomed={view.scale>1||undefined} title={crop?undefined:"Scroll to zoom · drag to pan"} style={view.scale>1&&fit.current?{width:`${fit.current.width}px`,height:`${fit.current.height}px`,flex:"none"}:undefined}
+        {mediaType === "video" ? compare&&showCompare?<div className="ds-viewer__video-pair" data-stacked={pairStacked||undefined}><figure><figcaption>{compare.name}</figcaption><video ref={reference} src={compare.src} aria-label={compare.name} controls muted playsInline preload="metadata" onLoadedMetadata={event=>{if(event.currentTarget.videoWidth>event.currentTarget.videoHeight)setPairStacked(true);}}/></figure><figure><figcaption>Result</figcaption><video ref={primary} src={current.src} aria-label="Comparison result" controls playsInline preload="metadata" onLoadedMetadata={event=>{if(event.currentTarget.videoWidth>event.currentTarget.videoHeight)setPairStacked(true);}}/></figure></div>:<video ref={primary} src={current.src} aria-label={current.name} controls autoPlay playsInline onDoubleClick={onActivate} /> : compare&&showCompare&&!crop?<div key="pair" className="ds-viewer__video-pair" ref={pairWrap} data-stacked={pairStacked||undefined} title="Scroll to zoom both · drag to pan">{[{src:compare.src,label:compare.name},{src:current.src,label:"Result"}].map(item=>{
+          const zoomed=view.scale>1&&pairFit.current;
+          return <figure key={item.label}><figcaption>{item.label}</figcaption><div className="ds-viewer__pairimg" data-zoomed={zoomed||undefined} style={zoomed?{width:`${pairFit.current!.width}px`,height:`${pairFit.current!.height}px`}:undefined}
+            onPointerDown={event=>{if(view.scale<=1)return;event.preventDefault();pan.current={x:event.clientX,y:event.clientY,from:view.x,fromY:view.y};event.currentTarget.setPointerCapture(event.pointerId);}}
+            onPointerMove={event=>{if(!pan.current||!pairFit.current)return;setView(panViewer({scale:view.scale,x:pan.current.from,y:pan.current.fromY},event.clientX-pan.current.x,event.clientY-pan.current.y,pairFit.current));}}
+            onPointerUp={()=>{pan.current=null;}} onPointerCancel={()=>{pan.current=null;}}>
+            <img src={item.src} alt={item.label} draggable={false} onDoubleClick={item.label==="Result"?onActivate:undefined} onLoad={event=>{if(event.currentTarget.naturalWidth>event.currentTarget.naturalHeight)setPairStacked(true);}}
+              style={zoomed?{width:`${pairFit.current!.width*view.scale}px`,height:`${pairFit.current!.height*view.scale}px`,maxWidth:"none",maxHeight:"none",transform:`translate(${view.x}px, ${view.y}px)`}:undefined}/>
+          </div></figure>;})}</div> : <div key="single" className="ds-viewer__image" ref={imageWrap} data-cropping={!!crop||undefined} data-zoomed={view.scale>1||undefined} title={crop?undefined:"Scroll to zoom · drag to pan"} style={view.scale>1&&fit.current?{width:`${fit.current.width}px`,height:`${fit.current.height}px`,flex:"none"}:undefined}
           onPointerDown={event=>{
             if(busy)return;
             if(crop){event.preventDefault();start.current=point(event);event.currentTarget.setPointerCapture(event.pointerId);setCrop({...start.current,w:0,h:0});return;}
@@ -3464,7 +3503,7 @@ export function MediaViewer({ open, src, name, onClose, actions, onActivate, med
           {mediaType==="image"&&<Button disabled={busy} onClick={()=>{fit.current=null;setView(VIEWER_FIT);setCrop({x:.05,y:.05,w:.9,h:.9});}}><Crop size={14}/>Quick crop</Button>}
           {mediaType==="image"&&editor.onEdit&&editor.canAnnotate&&<Button disabled={busy} onClick={()=>{fit.current=null;setView(VIEWER_FIT);setAnnotationOpen(true);}}>Annotate</Button>}
           {mediaType==="image"&&editor.onEdit&&<Button disabled={busy} onClick={()=>void edit("modify")}><Sparkles size={14}/>Modify with AI</Button>}
-          {mediaType==="video"&&compare&&<Button aria-pressed={showCompare} onClick={()=>setShowCompare(value=>!value)}><ArrowLeftRight size={14}/>Compare</Button>}
+          {compare&&<Button aria-pressed={showCompare} onClick={()=>setShowCompare(value=>!value)}><ArrowLeftRight size={14}/>Compare</Button>}
           {mediaType==="video"&&compare&&showCompare&&<Tooltip content={playbackHint||"Playback is linked by elapsed time over the shared duration. Unlink to inspect each clip independently."}><Button aria-pressed={linked} onClick={()=>setLinked(value=>!value)}><Link2 size={14}/>{linked?"Unlink playback":"Link playback"}</Button></Tooltip>}
           {result&&<LinkButton href={result.src} download={result.name}>Download crop</LinkButton>}
           {actions}
@@ -3912,16 +3951,31 @@ export function PresetGrid({ children, label }: { children: ReactNode; label: st
     </div>
   );
 }
-export function PresetCard({ label, hint, thumb, thumbs, icon, selected, size, featured, badge, promo, video, onSelect }: { /** A few promoted All tools tiles: the picture fills the card and the name sits on it in two bold lines over a black scrim (rule 64). */ promo?: boolean; /** A muted loop that plays in place of the picture; `thumb` is its poster and stands in when motion is reduced. */ video?: string; /** A short name set on the picture in a ring, for the one led tool. */ badge?: string; /** Pictures shown one after another (a slow cross-fade) when there are several; `thumb` leads. */ thumbs?: string[]; /** The one card the product leads with: a thin brand-yellow ring. */ featured?: boolean; label: string; hint?: string; thumb?: string; icon?: ReactNode; selected?: boolean; /** The larger name and air of an All tools tile. */ size?: "tool"; onSelect: () => void }) {
+export function PresetCard({ label, hint, thumb, thumbs, icon, selected, size, featured, badge, promo, video, before, onSelect }: { /** The picture before the tool changed it: the tile shows a before/after wipe whose line sweeps on its own and follows the pointer on hover (rule 75); `thumb` is the after. */ before?: string; /** A few promoted All tools tiles: the picture fills the card and the name sits on it in two bold lines over a black scrim (rule 64). */ promo?: boolean; /** A muted loop that plays in place of the picture; `thumb` is its poster and stands in when motion is reduced. */ video?: string; /** A short name set on the picture in a ring, for the one led tool. */ badge?: string; /** Pictures shown one after another (a slow cross-fade) when there are several; `thumb` leads. */ thumbs?: string[]; /** The one card the product leads with: a thin brand-yellow ring. */ featured?: boolean; label: string; hint?: string; thumb?: string; icon?: ReactNode; selected?: boolean; /** The larger name and air of an All tools tile. */ size?: "tool"; onSelect: () => void }) {
   const reduced = useReducedMotion();
   return (
     <button type="button" role="radio" aria-checked={!!selected} className={cx("ds-preset", size === "tool" && "ds-preset--tool", featured && "ds-preset--featured", promo && "ds-preset--promo")} onClick={onSelect}>
-      <span className="ds-preset__art">{video && !reduced ? <LazyVideo src={video} poster={thumb} /> : thumb ? <RotatingPicture first={thumb} more={thumbs} /> : icon}{badge && <span className="ds-preset__badge">{badge}</span>}
+      <span className="ds-preset__art">{video && !reduced ? <LazyVideo src={video} poster={thumb} /> : thumb && before ? <BeforeAfterArt before={before} after={thumb} /> : thumb ? <RotatingPicture first={thumb} more={thumbs} /> : icon}{badge && <span className="ds-preset__badge">{badge}</span>}
         {promo && <span className="ds-preset__over"><span className="ds-preset__headline">{label}</span>{hint && <span className="ds-preset__overhint">{hint}</span>}</span>}</span>
       {!promo && <span className="ds-preset__label" title={size === "tool" ? label : undefined}>{label}</span>}
       {!promo && hint && <span className="ds-preset__hint">{hint}</span>}
     </button>
   );
+}
+
+/* Before/after inside a tile: decorative (the tile itself is the button), so the line is not a control of its own. */
+function BeforeAfterArt({ before, after }: { before: string; after: string }) {
+  const reduced = useReducedMotion();
+  const [cut, setCut] = useState<number | null>(null);
+  return <span className="ds-preset__wipe" data-live={(cut === null && !reduced) || undefined} style={cut === null ? undefined : { ["--cut" as string]: `${cut}%` }}
+    onPointerMove={(event) => { const box = event.currentTarget.getBoundingClientRect(); if (box.width) setCut(Math.max(0, Math.min(100, ((event.clientX - box.left) / box.width) * 100))); }}
+    onPointerLeave={() => setCut(null)}>
+    <img src={before} alt="" loading="lazy" />
+    <img className="ds-preset__after" src={after} alt="" loading="lazy" />
+    <span className="ds-preset__cut" aria-hidden />
+    <span className="ds-preset__side ds-preset__side--before" aria-hidden>Before</span>
+    <span className="ds-preset__side ds-preset__side--after" aria-hidden>After</span>
+  </span>;
 }
 
 /* A card shows one of its pictures; which one changes with every page load (the list comes in already turned), never on a timer. */

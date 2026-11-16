@@ -28,6 +28,7 @@
     },
     { "id": "megapixels", "label": "Size", "type": "select", "options": [1, 2, 4], "default": 1, "sizeChoice": true, "binding": { "node": "13", "field": "megapixels" } },
     { "id": "steps", "label": "Steps", "type": "integer", "min": 1, "max": 100, "default": 25, "binding": { "node": "459:458", "field": "steps" } },
+    { "id": "sampler", "label": "Sampler", "type": "select", "options": ["euler", "euler_ancestral"], "default": "euler", "binding": { "node": "459:458", "field": "sampler_name" } },
     { "id": "seed", "label": "Seed", "type": "integer", "min": 0, "max": 2147483647, "default": 42, "binding": { "node": "459:458", "field": "seed" } }
   ],
   "presets": [],

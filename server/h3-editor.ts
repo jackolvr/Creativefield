@@ -82,7 +82,8 @@ export async function h3EditorRoutes(app: FastifyInstance, pool: Pool, store: Di
     await member(pool, request, workspaceId);
     const query = request.query as {filename?: unknown; subfolder?: unknown};
     const filename = typeof query.filename === "string" ? query.filename : "";
-    const subfolder = typeof query.subfolder === "string" ? query.subfolder : "";
+    // The editor writes Windows folders with backslashes for generated takes; ComfyUI reads either.
+    const subfolder = typeof query.subfolder === "string" ? query.subfolder.replace(/\\/g, "/") : "";
     if (!filename || filename.includes("/") || filename.includes("\\")) throw new HttpError(400, "Unknown clip");
     /* Only the editor's own project media is readable through this bridge. */
     if (!/^h3take_projects\/[A-Za-z0-9][A-Za-z0-9._-]*(\/|$)/.test(subfolder)) throw new HttpError(403, "Not H3 Editor media");

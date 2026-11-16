@@ -44,7 +44,12 @@ export async function uploadBlockoutClip(
 
 /** Upload a video blob as a project asset and return its id. */
 export async function uploadGreyClip(workspaceId: string, projectId: string | undefined, blob: Blob, name: string): Promise<string> {
-  const query = new URLSearchParams({kind: "video"});
+  return uploadProjectAsset(workspaceId, projectId, blob, name, "video");
+}
+
+/** Upload a blob as a project asset of the given kind and return its id. */
+export async function uploadProjectAsset(workspaceId: string, projectId: string | undefined, blob: Blob, name: string, kind: "video" | "image"): Promise<string> {
+  const query = new URLSearchParams({kind});
   if (projectId) query.set("projectId", projectId);
   const form = new FormData();
   form.append("file", blob, name);
