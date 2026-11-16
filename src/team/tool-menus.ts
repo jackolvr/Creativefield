@@ -19,7 +19,7 @@ const ROWS: Record<Medium,{id:string;title:string;text:string}[]> = {
  *  under public/examples/tiles. Screen entries (Camera angles, Relight) have no task id, so the title is the key. */
 const T="/examples/tiles/";
 const MENU_MEDIA:Record<string,[string,string]>={
-  "Upscale":["menu-upscale","menu-upscale"],"Edit video":["menu-edit","menu-edit"],
+  "Upscale":["menu-upscale","menu-upscale"],"Sharper and bigger":["menu-upscale","menu-upscale"],"Edit video":["menu-edit","menu-edit"],
   "Make a picture":["menu-picture","picture"],"My characters":["menu-character","character"],
   "Camera angles":["menu-angles","angles"],"Relight":["menu-relight","new-look-before"],
 };
